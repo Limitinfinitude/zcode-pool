@@ -591,10 +591,9 @@ button { white-space: nowrap; }
 .side-status .ss-text { white-space: nowrap; }
 .zc-btn {
   margin-left: auto; appearance: none; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 9px; border-radius: 980px; line-height: 1;
+  width: 24px; height: 24px; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--sep); background: var(--fill); color: var(--label-2);
-  font-family: var(--sans); font-size: 11px; white-space: nowrap;
   transition: background .14s ease, color .14s ease, border-color .14s ease;
 }
 .zc-btn:hover:not(:disabled) { color: var(--label); border-color: var(--line-2); }

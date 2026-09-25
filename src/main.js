@@ -1146,8 +1146,8 @@ function render() {
           <span class="status-dot ${dotCls}"></span>
           <span class="ss-text">${esc(statusText)}</span>
           ${s.zcode_running
-            ? `<button class="zc-btn on" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 12)} ${t("btn.killZcode")}</button>`
-            : `<button class="zc-btn" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"} title="${t("btn.launchZcode")}">${ic("play", 11)} ${t("btn.launchZcode")}</button>`}
+            ? `<button class="zc-btn on" click="actions.askKill()" title="${t("btn.killZcode")}" aria-label="${t("btn.killZcode")}">${ic("power", 15)}</button>`
+            : `<button class="zc-btn" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"} title="${t("btn.launchZcode")}" aria-label="${t("btn.launchZcode")}">${ic("play", 13)}</button>`}
         </div>
         <button class="nav-item${tab === "settings" ? " on" : ""}" aria-current="${tab === "settings" ? "page" : "false"}" click="actions.openSettings()">${ic("sliders", 17)} ${t("common.settings")}</button>
       </div>
