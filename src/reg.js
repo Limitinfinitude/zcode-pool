@@ -99,6 +99,8 @@ export function regStart(mode, provider) {
     batchEmail: "",
     /** 已经自动下发过几次链接 */
     linkAuto: 0,
+    /** 驱动点下「创建账号」的时刻：取链按这个时间过滤，只认之后的邮件 */
+    submittedAt: 0,
   };
   linkBusy = false;
   pushLog("info", "connected", provider);
@@ -149,6 +151,8 @@ export function regEvent(ev) {
       }
       break;
     case "log":
+      // 记下注册提交时刻：自动取链只认这之后到的邮件，避开旧验证邮件。
+      if (ev.code === "submitted") S.submittedAt = Date.now();
       pushLog(ev.level || "info", ev.code, ev.a, ev.b);
       break;
     case "closed":
@@ -219,6 +223,13 @@ async function autoFetchLink() {
   pushLog("info", "fetchLinkStart", email);
   render();
 
+  // 只认「本次注册提交之后」收到的邮件：邮箱里躺着上一次注册的旧验证邮件时，
+  // 不过滤就会把**过期链接**当成有效的交上去（实测踩到：驱动打开旧链接 → 提示
+  // 无效 → 整条注册卡住）。优先用驱动点「创建账号」的时刻，退回落窗口打开时刻，
+  // 再留 60 秒余量防时钟偏差。
+  const anchor = S.submittedAt || S.startedAt || Date.now();
+  const sinceMs = anchor - 60_000;
+
   let link = "";
   let fail = "";
   // 取不到时用来判断到底是「邮件没到」还是「到了但没有链接」。
@@ -226,7 +237,7 @@ async function autoFetchLink() {
   let info = "";
   for (let i = 0; i < LINK_POLL_TRIES && !S.closed; i++) {
     try {
-      const r = await invoke("reg_fetch_link", { email, limit: 15 });
+      const r = await invoke("reg_fetch_link", { email, limit: 15, since: sinceMs });
       const links = (r && r.links) || [];
       if (links.length) {
         link = pickLink(links);

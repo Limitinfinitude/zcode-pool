@@ -593,13 +593,24 @@ async fn reg_action(app: AppHandle, action: String) -> Result<(), String> {
 /// 本机邮箱工具。只回链接和「看了几封」，不回邮件内容；Graph 若轮换了
 /// refresh_token，顺手回写存库。
 #[tauri::command]
-async fn reg_fetch_link(email: String, limit: Option<usize>) -> Result<Value, String> {
+async fn reg_fetch_link(
+    email: String,
+    limit: Option<usize>,
+    // since：只认收件时间不早于它（epoch 毫秒）的邮件。
+    // 前端传「本次注册流程的起点」，用来避开上一次注册留下的旧验证邮件。
+    since: Option<i64>,
+) -> Result<Value, String> {
     let root = Paths::detect().store_dir();
     let mut accounts = pool::load(&root);
     let acc = pool::find(&accounts, &email)
         .ok_or_else(|| i18n::trf("err.pool.not_found", &[("email", email.trim())]))?
         .clone();
-    let (found, new_rt) = match graph::fetch_links(&acc.client_id, &acc.refresh_token, limit.unwrap_or(12)) {
+    let (found, new_rt) = match graph::fetch_links(
+        &acc.client_id,
+        &acc.refresh_token,
+        limit.unwrap_or(12),
+        since,
+    ) {
         Ok(v) => v,
         Err(e) => {
             // 凭据失效：标「需重新授权」，批量里会自动跳过

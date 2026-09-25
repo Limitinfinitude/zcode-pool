@@ -296,12 +296,27 @@ pub struct Found {
     pub newest_at: Option<String>,
 }
 
+/// Graph 的 `receivedDateTime` 是 RFC3339（如 `2026-09-26T01:24:00Z`）。
+fn received_ms(m: &Value) -> Option<i64> {
+    m.get("receivedDateTime")
+        .and_then(Value::as_str)
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.timestamp_millis())
+}
+
 /// 取链接。`top` 是往 Graph 要几封（1~25）。
+///
+/// `since_ms` 给定时，**收件时间早于它的邮件整封跳过** —— 邮箱里躺着上一次注册
+/// 留下的旧验证邮件时，不过滤就会把**已过期的链接**当成有效链接交给驱动
+/// （实测踩到：驱动打开旧链接 → 提示无效 → 整条注册卡住）。
+/// 过滤后找不到新链接就返回空，让调用方继续轮询 —— **绝不回退到旧链接**。
+///
 /// 返回 (链接, 轮换出的新 refresh_token)。
 pub fn fetch_links(
     client_id: &str,
     refresh_token: &str,
     top: usize,
+    since_ms: Option<i64>,
 ) -> Result<(Found, Option<String>), String> {
     let take = top.clamp(1, 25);
     let tok = exchange_token(client_id, refresh_token)?;
@@ -340,6 +355,12 @@ pub fn fetch_links(
                     .get("receivedDateTime")
                     .and_then(Value::as_str)
                     .map(String::from);
+            }
+            // 时间过滤：早于本次流程起点的邮件整封跳过（防取到过期链接）
+            if let (Some(since), Some(at)) = (since_ms, received_ms(m)) {
+                if at < since {
+                    continue;
+                }
             }
             let mut text = String::new();
             if let Some(c) = m.pointer("/body/content").and_then(Value::as_str) {
