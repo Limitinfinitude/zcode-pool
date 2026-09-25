@@ -23,11 +23,14 @@ desktop.ini
 .idea/
 *.swp
 
+# Local agent config
+.zcode/
+.claude/
+
 # Misc
 nul
 *.local
-
-# Local agent config
-.zcode/
+*.tmp
+*.partial
 
 __pycache__/

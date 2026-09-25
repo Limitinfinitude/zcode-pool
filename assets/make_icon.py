@@ -4,7 +4,7 @@
 自研标记：iOS 圆角方形（squircle）蓝渐变底，中央白色「池」状堆叠三横条
 （上短下长，像账号/邮件越攒越多）。
 
-跑完再用 `npx tauri icon icon-src.png` 由它生成 src-tauri/icons/ 整套图标。
+跑完再用 `npx tauri icon assets/icon-src.png` 由它生成 src-tauri/icons/ 整套图标。
 依赖：Pillow。
 """
 from pathlib import Path
