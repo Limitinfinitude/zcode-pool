@@ -436,6 +436,7 @@ async fn oauth_begin(
         );
     }
     let url = init.authorize_url.clone();
+    let state = init.state.clone();
     let poll_cfg = PollCfg {
         url: init.poll_url.clone(),
         token: init.poll_token.clone(),
@@ -444,7 +445,7 @@ async fn oauth_begin(
     };
     *pending_oauth_guard() = Some(PendingOAuth {
         provider: provider.clone(),
-        state: init.state.clone(),
+        state: state.clone(),
         flow: flow.clone(),
     });
 
@@ -457,14 +458,14 @@ async fn oauth_begin(
     let profile_dir = login_root.join(&flow);
 
     let app2 = app.clone();
-    let (provider2, state2, flow2, mid2) = (provider.clone(), init.state.clone(), flow.clone(), mid.clone());
+    let (provider2, state2, flow2, mid2) = (provider.clone(), state.clone(), flow.clone(), mid.clone());
     let flow_close = flow.clone();
     // 注册助手：配置 + 脚本在每次页面加载时注入。return_url 是注册完成后要回去的
     // 授权页地址——注册流程会先离开它，弄完必须原路返回，OAuth 才会接着走完。
     let driver_script = driver::bootstrap_script(&json!({
         "mode": assist_mode,
         "provider": provider,
-        "return_url": init.authorize_url,
+        "return_url": url,
         "auto": auto,
     }));
     let flow_driver = flow.clone();
@@ -605,6 +606,12 @@ async fn reg_fetch_link(
     let acc = pool::find(&accounts, &email)
         .ok_or_else(|| i18n::trf("err.pool.not_found", &[("email", email.trim())]))?
         .clone();
+    // 取链结果也记进 flowlog。以前失败原因只写进抽屉，oauth.log 里只剩「用户取消」，
+    // 排查时根本看不见发生了什么。
+    let cur_flow = pending_oauth_guard()
+        .as_ref()
+        .map(|p| p.flow.clone())
+        .unwrap_or_default();
     let (found, new_rt) = match graph::fetch_links(
         &acc.client_id,
         &acc.refresh_token,
@@ -613,6 +620,10 @@ async fn reg_fetch_link(
     ) {
         Ok(v) => v,
         Err(e) => {
+            if !cur_flow.is_empty() {
+                let short: String = e.chars().take(200).collect();
+                flowlog::log(&cur_flow, "link-fetch-fail", &short);
+            }
             // 凭据失效：标「需重新授权」，批量里会自动跳过
             if graph::is_credential_error(&e) {
                 let _ = pool::set_status(&root, &email, pool::STATUS_INVALID, Some(i18n::tr("err.graph.reauth")));
@@ -620,6 +631,24 @@ async fn reg_fetch_link(
             return Err(e);
         }
     };
+    if !cur_flow.is_empty() {
+        let newest: String = found
+            .newest_subject
+            .clone()
+            .unwrap_or_default()
+            .chars()
+            .take(40)
+            .collect();
+        flowlog::log(
+            &cur_flow,
+            "link-fetch",
+            &format!(
+                "found={} scanned={} newest={newest}",
+                found.links.len(),
+                found.scanned
+            ),
+        );
+    }
     if let Some(rt) = new_rt {
         if let Some(a) = pool::find_mut(&mut accounts, &email) {
             a.refresh_token = rt;

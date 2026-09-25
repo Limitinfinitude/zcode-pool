@@ -938,7 +938,15 @@ pub fn live_quota(paths: &Paths) -> Result<quota::QuotaOverview, String> {
 
 pub fn account_quota(paths: &Paths, id: &str) -> Result<quota::QuotaOverview, String> {
     let acc = load_account(paths, id)?;
-    quota::quota_for_snapshot(&paths.home, &acc.credentials, acc.config.as_ref())
+    // 必须带**该账号自己的**设备标识：服务端的 balance 是按「账号 + 设备」返回的，
+    // 用别的号的 mid 去问会拿到空 plans（看着像没套餐，其实是问错了身份）。
+    let mid = ensure_virtual_device_mid(paths, id).ok();
+    quota::quota_for_snapshot_mid(
+        &paths.home,
+        &acc.credentials,
+        acc.config.as_ref(),
+        mid.as_deref(),
+    )
 }
 
 fn ensure_virtual_device_mid_locked(paths: &Paths, id: &str) -> Result<String, String> {

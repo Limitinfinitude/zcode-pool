@@ -337,13 +337,29 @@ pub fn candidate_tokens(creds: &Value, config: Option<&Value>, secret: &str) -> 
 }
 
 fn http_get_json(url: &str, token: &str, retry_429: bool) -> Result<Value, String> {
+    http_get_json_mid(url, token, retry_429, None)
+}
+
+/// 同上，但可以指定 `X-Device-Mid`。
+///
+/// **这个 mid 很要命**：服务端返回的 balance 是**按「账号 + 设备」**算的 ——
+/// 用别的号的 mid 去问，即使这个账号本身有套餐，服务端也会回空 `plans`
+/// （实测：同一个账号，换 mid 一个 `plans=[]`、一个套餐齐全，且套餐就在那一刻挂上）。
+/// 所以**按账号查额度必须传该账号自己的 `virtual_device_mid`**；
+/// 只有传 None 时才回退到全局那个（本地设备文件里的，也就是「最后切换到的号」）。
+fn http_get_json_mid(
+    url: &str,
+    token: &str,
+    retry_429: bool,
+    mid: Option<&str>,
+) -> Result<Value, String> {
     let retry_delays = [500u64, 1500, 4000];
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
         .build();
     let headers = if url.contains("zcode.z.ai") {
-        zai_billing_headers(token)
+        zai_billing_headers_with_mid(token, mid.map(str::to_string).or_else(device_mid))
     } else {
         bigmodel_headers(token)
     };
@@ -723,8 +739,55 @@ pub fn quota_for_live(home: &Path, creds: &Value, config: Option<&Value>) -> Res
     query_quota(&tokens)
 }
 
-pub fn quota_for_snapshot(home: &Path, creds: &Value, config: Option<&Value>) -> Result<QuotaOverview, String> {
-    quota_for_live(home, creds, config)
+/// 按账号查额度 —— 带上**该账号自己的**设备标识（见 http_get_json_mid 的注释）。
+///
+/// 不知道是哪个账号时（例如「当前登录」那条路）才用 None，回退到全局 mid。
+pub fn quota_for_snapshot_mid(
+    home: &Path,
+    creds: &Value,
+    config: Option<&Value>,
+    mid: Option<&str>,
+) -> Result<QuotaOverview, String> {
+    let secret = zcrypto::default_secret(home);
+    let channels = pick_channels(creds, config, &secret);
+    if !channels.is_empty() {
+        if let Ok(ov) = query_channels_via(&channels, &|u, t| http_get_json_mid(u, t, true, mid)) {
+            return Ok(ov);
+        }
+    }
+    let tokens = candidate_tokens(creds, config, &secret);
+    query_quota_mid(&tokens, mid)
+}
+
+/// 同 query_quota，但带上指定的设备标识。
+pub fn query_quota_mid(tokens: &[String], mid: Option<&str>) -> Result<QuotaOverview, String> {
+    if tokens.is_empty() {
+        return Err(crate::i18n::tr("err.quota.no_token"));
+    }
+    let mut last_err: Option<String> = None;
+    let mut first_business: Option<String> = None;
+    let mut auth_fail = 0usize;
+    for t in tokens {
+        match query_with_token_via(t, &|u, tk| http_get_json_mid(u, tk, true, mid)) {
+            Ok(ov) => return Ok(ov),
+            Err(e) => {
+                if e.contains("401") {
+                    auth_fail += 1;
+                } else if first_business.is_none() {
+                    first_business = Some(e.clone());
+                }
+                last_err = Some(e);
+            }
+        }
+    }
+    if auth_fail > 0 && auth_fail == tokens.len() {
+        sleep(Duration::from_millis(1500));
+        if let Ok(ov) = query_with_token_via(&tokens[0], &|u, tk| http_get_json_mid(u, tk, true, mid)) {
+            return Ok(ov);
+        }
+        return Err(crate::i18n::tr("err.token.expired"));
+    }
+    Err(first_business.or(last_err).unwrap_or_else(|| crate::i18n::tr("err.quota.fail")))
 }
 
 fn unit_label(unit: Option<i64>, number: Option<i64>) -> (String, String) {

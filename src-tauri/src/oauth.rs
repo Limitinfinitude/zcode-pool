@@ -22,8 +22,25 @@ pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
 const REDIRECT_ENC: &str = "zcode%3A%2F%2Foauth%2Fcallback";
 
 pub fn bridge_redirect_uri() -> String {
-    format!("https://zcode.z.ai/app/oauth/login?redirect={REDIRECT_ENC}&app_version={}", quota::CLIENT_APP_VERSION)
+    // app_version 用**本机 ZCode 的真实版本**（读注册表，拿不到才回退常量）——
+    // 客户端就是拿自己版本拼的这个参数，服务端有可能据此判断「这是不是 App 在登录」。
+    format!(
+        "https://zcode.z.ai/app/oauth/login?redirect={REDIRECT_ENC}&app_version={}",
+        quota::zcode_app_version()
+    )
 }
+
+/// App 流的授权地址构造 —— 试过、**已回滚**。
+///
+/// 背景：客户端走的是「redirect_uri 指向桥页 → 登录完成后桥页跳
+/// `zcode://oauth/callback`」这条路（我们拦 `zcode://` 的代码本来就有，
+/// `exchange_token` 也早就实现了换 token）。当时怀疑「Start Plan 只有 App 流才下发」，
+/// 于是把这条路接通并实测：**能跑通、能入库，但 Start Plan 照样不下来。**
+///
+/// 真正的原因是**设备标识**（见 quota.rs 里 `http_get_json_mid` 的注释）：
+/// 服务端的 balance 按「账号 + 设备」返回，用别的号的 mid 去问就是空 plans。
+/// 修好 mid 之后批量注册用回原来的 CLI 流，这条路没必要留着。
+
 
 fn urlencode(s: &str) -> String {
     s.bytes()
