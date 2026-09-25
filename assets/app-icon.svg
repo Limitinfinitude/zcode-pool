@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>Z·POOL</title>
+  <desc>A geometric Z above an offset blue layer, representing a pool of accounts.</desc>
+  <defs>
+    <linearGradient id="surface" x1="64" y1="24" x2="448" y2="496" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#253D64"/>
+      <stop offset="1" stop-color="#101C32"/>
+    </linearGradient>
+    <linearGradient id="layer" x1="188" y1="220" x2="404" y2="416" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6CB9FF"/>
+      <stop offset="1" stop-color="#417FEF"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#surface)"/>
+  <path d="M408 224V356C408 384.719 384.719 408 356 408H224" stroke="url(#layer)" stroke-width="24" stroke-linecap="round"/>
+  <path d="M128 124H364V176L208 308H364V364H128V312L284 180H128V124Z" fill="#F0F6FF"/>
+  <path d="M208 308H364V364H142L208 308Z" fill="#89BDFF"/>
+</svg>

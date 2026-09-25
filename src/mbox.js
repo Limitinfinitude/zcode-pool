@@ -68,6 +68,8 @@ function badge(a) {
 
 export function mboxPage() {
   const b = M.batch;
+  const verified = M.list.filter((a) => a.status === "verified").length;
+  const attention = M.list.filter((a) => a.status === "failed" || a.status === "invalid").length;
   const progress = b.running
     ? `<div class="prog">
          <div class="prog-bar"><i style="width:${b.total ? Math.round((b.done / b.total) * 100) : 0}%"></i></div>
@@ -80,9 +82,9 @@ export function mboxPage() {
         .map(
           (a) => `
       <div class="row" data-email="${esc(a.email)}">
-        <input type="checkbox" class="cbx mb-check" data-email="${esc(a.email)}" ${M.sel.has(a.email) ? "checked" : ""}
+        <input type="checkbox" class="cbx mb-check" aria-label="${esc(a.email)}" data-email="${esc(a.email)}" ${M.sel.has(a.email) ? "checked" : ""}
           ${b.running ? "disabled" : ""}>
-        <span class="mail">${esc(a.email)}</span>
+        <span class="mail" title="${esc(a.email)}">${esc(a.email)}</span>
         ${badge(a)}
         <span class="when">${esc(a.verified_at || "")}</span>
         ${a.status === "invalid" ? `<button class="btn sm mb-reauth" data-reauth="${esc(a.email)}">${esc(t("mb.reauth"))}</button>` : ""}
@@ -105,12 +107,18 @@ export function mboxPage() {
       <h1>${t("mb.title")}</h1>
       <span class="sub">${t("m.count", { count: M.list.length })}</span>
       <span class="spacer"></span>
-      <div class="seg mb-filter">
+      <div class="seg mb-filter" role="group" aria-label="${t("mb.title")}">
         ${["all", "new", "verified"]
-          .map((f) => `<button class="${M.filter === f ? "on" : ""}" click="actions.mboxFilter('${f}')">${tr("mb.filter", f)}</button>`)
+          .map((f) => `<button class="${M.filter === f ? "on" : ""}" aria-pressed="${M.filter === f}" click="actions.mboxFilter('${f}')">${tr("mb.filter", f)}</button>`)
           .join("")}
       </div>
     </div>
+    <dl class="mail-overview">
+      <div><dt>${t("mb.overview.total")}</dt><dd>${M.list.length}</dd></div>
+      <div><dt>${t("mb.status.new")}</dt><dd>${M.list.length - verified - attention}</dd></div>
+      <div class="verified"><dt>${t("mb.status.verified")}</dt><dd>${verified}</dd></div>
+      <div class="attention"><dt>${t("mb.overview.attention")}</dt><dd>${attention}</dd></div>
+    </dl>
     <section class="toolbar">
       <button class="btn p" click="actions.mboxImport()" ${b.running ? "disabled" : ""}>${ic("import", 15)} ${t("mb.import")}</button>
       <button class="btn" click="actions.mboxExport()" ${M.list.length && !b.running ? "" : "disabled"}>${ic("export", 14)} ${t("mb.export")}</button>

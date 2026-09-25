@@ -4,6 +4,8 @@
 
 A Tauri 2 desktop tool that folds **mailbox pool → batch register & verify Z.ai accounts → account switching** into one app.
 
+> **Keywords**: ZCode account switcher · Z.ai bulk signup · mailbox pool · Outlook / Hotmail OAuth · Microsoft Graph API mail · multi-account · device-identity virtualization · license verification · Tauri 2 · desktop tool · open source
+
 ![screenshot](assets/screenshot.png)
 
 Email is read **straight from Microsoft Graph** (using each account's own `client_id` + `refresh_token`) — **no external mail program required**. The only manual chore in automated signup is the slider captcha; it's a cloud human-verification check that can't be bypassed. Everything else is automatic.

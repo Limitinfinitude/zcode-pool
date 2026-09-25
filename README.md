@@ -4,6 +4,8 @@
 
 Tauri 2 桌面工具，把「**邮箱池 → 批量注册验证 Z.ai 账号 → 账号切换**」这条链路收进一个 app。
 
+> **关键词**：ZCode 账号切换 · Z.ai 批量注册 · 邮箱池/邮箱库 · Outlook / Hotmail 授权 · 微软 Graph API 读信 · ZCode 多开换号 · 设备身份虚拟化 · 卡密/授权验证 · Tauri 2 · 桌面工具 · 开源
+
 ![screenshot](assets/screenshot.png)
 
 读信**直连微软 Graph**（用账号自带的 `client_id` + `refresh_token`），**不依赖任何外部邮箱程序**。自动注册里唯一的体力活是过滑块——那个是云端人机校验，绕不过，其余全自动。

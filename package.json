@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "icons": "tauri icon assets/app-icon.svg",
     "dist": "node scripts/dist.mjs",
     "check:i18n": "node scripts/check-i18n-keys.mjs"
   },

@@ -664,8 +664,7 @@ function quotaBarHtml(pct) {
   const remaining = used == null ? null : 100 - used;
   const danger = used != null && used >= 90 ? " danger" : used != null && used >= 70 ? " warn" : "";
   const txt = remaining == null ? "--" : remaining.toFixed(0) + "%";
-  const txtCls = (remaining ?? 100) >= 58 ? " in-fill" : "";
-  return `<div class="qbar${danger}"><div class="qbar-fill" style="width:${remaining ?? 100}%"></div><span class="qbar-pct${txtCls}">${txt}</span></div>`;
+  return `<div class="qbar${danger}"><div class="qbar-fill" style="width:${remaining ?? 100}%"></div></div><span class="qbar-pct">${txt}</span>`;
 }
 
 function itemKind(it) {
@@ -860,21 +859,26 @@ function acctQuotaSlot(id) {
 }
 
 function captureScroll() {
+  const content = $app.querySelector(".content");
   const list = $app.querySelector(".list");
-  if (!list || list.scrollTop === 0) return null;
+  if (!list || (!list.scrollTop && !content?.scrollTop)) return null;
+  const cap = { page: content.className, contentTop: content.scrollTop, scrollTop: list.scrollTop };
   const listTop = list.getBoundingClientRect().top;
   for (const row of list.querySelectorAll(".row[data-id]")) {
     if (row.getBoundingClientRect().bottom > listTop) {
-      return { id: row.dataset.id, offset: row.getBoundingClientRect().top - listTop, scrollTop: list.scrollTop };
+      return { ...cap, id: row.dataset.id, offset: row.getBoundingClientRect().top - listTop };
     }
   }
-  return null;
+  return cap;
 }
 function restoreScroll(cap) {
   if (!cap) return;
+  const content = $app.querySelector(".content");
+  if (content?.className !== cap.page) return;
+  content.scrollTop = cap.contentTop;
   const list = $app.querySelector(".list");
   if (!list) return;
-  const row = list.querySelector(`.row[data-id="${CSS.escape(cap.id)}"]`);
+  const row = cap.id ? list.querySelector(`.row[data-id="${CSS.escape(cap.id)}"]`) : null;
   if (row) {
     const delta = row.getBoundingClientRect().top - list.getBoundingClientRect().top;
     list.scrollTop = delta - cap.offset;
@@ -968,7 +972,7 @@ function filteredAccounts(s) {
 /** 只重画列表，不动表头——否则输入框每敲一个字都会失焦 */
 function applyFilter() {
   if (!state) return;
-  const main = $app.querySelector("main.list");
+  const main = $app.querySelector(".account-list .group");
   if (main) main.innerHTML = listHtmlFor(state, filteredAccounts(state));
 }
 
@@ -1036,11 +1040,10 @@ function statsHtml(s) {
       <div class="dash-hero-txt">
         <div class="dash-hero-lb">${t("st.totalTokens")}</div>
         <div class="dash-hero-meta">${t("st.meta", { a: s.accounts.length, m: models.length, r: ready })}</div>
+        <button class="btn g sm dash-refresh" click="actions.refreshQuota()" ${s.accounts.length ? "" : "disabled"}>${ic("refresh", 14)} ${t("st.refresh")}</button>
       </div>
-      <span class="spacer"></span>
-      <button class="btn" click="actions.refreshQuota()">${ic("refresh", 14)} ${t("st.refresh")}</button>
     </div>
-    <div class="gauges">${gauges || `<div class="sm-empty">${t("st.noQuota")}</div>`}</div>
+    <div class="gauges">${gauges || `<div class="sm-empty">${t(s.accounts.length ? "st.noQuota" : "st.emptyQuota")}</div>`}</div>
   </div>`;
 }
 
@@ -1128,17 +1131,23 @@ function render() {
   const stats = mboxStats();
   const sidebar = `
     <aside class="sidebar">
-      <div class="side-brand"><span class="mark">Z·POOL</span>${appVer ? `<span class="v">v${esc(appVer)}</span>` : ""}</div>
+      <div class="side-brand"><span class="mark">Z·POOL</span>${appVer ? `<span class="v">v${esc(appVer)}</span>` : ""}<span class="brand-caption">${t("m.workspace")}</span></div>
       <nav class="nav">
-        <button class="nav-item${tab === "mailbox" ? " on" : ""}" click="actions.setTab('mailbox')">
+        <button class="nav-item${tab === "mailbox" ? " on" : ""}" aria-current="${tab === "mailbox" ? "page" : "false"}" click="actions.setTab('mailbox')">
           ${ic("mail", 17)} ${t("m.tab.mailbox")}${stats.unverified ? `<span class="badge">${stats.unverified}</span>` : ""}
         </button>
-        <button class="nav-item${tab === "accounts" ? " on" : ""}" click="actions.setTab('accounts')">
+        <button class="nav-item${tab === "accounts" ? " on" : ""}" aria-current="${tab === "accounts" ? "page" : "false"}" click="actions.setTab('accounts')">
           ${ic("person", 17)} ${t("m.tab.accounts")}${s.accounts.length ? `<span class="badge">${s.accounts.length}</span>` : ""}
         </button>
       </nav>
       <div class="nav-spacer"></div>
-      <button class="nav-item" click="actions.openSettings()">${ic("sliders", 17)} ${t("common.settings")}</button>
+      <div class="side-footer">
+        <div class="side-status${unsaved ? " unsaved" : ""}"><span class="status-dot ${dotCls}"></span><span>${esc(statusText)}</span></div>
+        <button class="nav-item${tab === "settings" ? " on" : ""}" aria-current="${tab === "settings" ? "page" : "false"}" click="actions.openSettings()">${ic("sliders", 17)} ${t("common.settings")}</button>
+        ${s.zcode_running
+          ? `<button class="nav-item" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 17)} ${t("btn.killZcode")}</button>`
+          : `<button class="nav-item" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"} title="${t("btn.launchZcode")}">${ic("play", 16)} ${t("btn.launchZcode")}</button>`}
+      </div>
     </aside>`;
 
   let body;
@@ -1153,11 +1162,6 @@ function render() {
       <div class="content-h">
         <h1>${t("m.accounts")}</h1>
         <span class="sub">${t("m.count", { count: s.accounts.length })}</span>
-        <span class="spacer"></span>
-        <div class="top-status${unsaved ? " unsaved" : ""}" style="margin-left:0">
-          <span class="status-dot ${dotCls}"></span>
-          <span class="status-text">${esc(statusText)}</span>
-        </div>
       </div>
       ${statsHtml(s)}
       <section class="toolbar">
@@ -1197,10 +1201,10 @@ function render() {
                value="${esc(filter)}" placeholder="${t("m.filterPh")}" aria-label="${t("m.filterPh")}">`
           : ""}
       </section>
-      <div class="list"><div class="group">${listHtml}</div></div>`;
+      <div class="list account-list"><div class="group">${listHtml}</div></div>`;
   }
 
-  $app.innerHTML = `<div class="shell">${sidebar}<div class="content">${body}</div></div>`;
+  $app.innerHTML = `<div class="shell">${sidebar}<div class="content page-${tab}">${body}</div></div>`;
   restoreScroll(scrollCap);
 }
 
