@@ -67,13 +67,16 @@ pub struct Token {
 }
 
 /// 用 client_id + refresh_token 换 access_token。
-pub fn exchange_token(client_id: &str, refresh_token: &str) -> Result<Token, String> {
-    if client_id.trim().is_empty() {
-        return Err(crate::i18n::tr("err.graph.no_client"));
-    }
-    if refresh_token.trim().is_empty() {
-        return Err(crate::i18n::tr("err.graph.no_token"));
-    }
+/// `.default` 在部分账号上会回 `AADSTS90023`（「No applicable permissions were found
+/// for this user」）—— 那是该邮箱对应的**应用注册没给这类用户配权限**。同一批邮箱里
+/// 有的号就只吃这一套，`.default` 反而拿不到。所以失败后退一步，用明确的 Graph
+/// 委托范围再试。
+const SCOPES_FALLBACK: [&str; 2] = [
+    "https://graph.microsoft.com/Mail.Read offline_access",
+    "https://graph.microsoft.com/User.Read offline_access",
+];
+
+fn try_exchange(client_id: &str, refresh_token: &str, scope: &str) -> Result<Token, String> {
     let resp = agent()
         .post(TOKEN_URL)
         .set("Content-Type", "application/x-www-form-urlencoded")
@@ -81,7 +84,7 @@ pub fn exchange_token(client_id: &str, refresh_token: &str) -> Result<Token, Str
             ("client_id", client_id.trim()),
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token.trim()),
-            ("scope", SCOPE),
+            ("scope", scope),
         ])
         .map_err(|e| http_err(&crate::i18n::tr("err.graph.token"), e))?;
     let v: Value = resp
@@ -100,6 +103,29 @@ pub fn exchange_token(client_id: &str, refresh_token: &str) -> Result<Token, Str
         access_token: at.to_string(),
         new_refresh_token: new_rt,
     })
+}
+
+pub fn exchange_token(client_id: &str, refresh_token: &str) -> Result<Token, String> {
+    if client_id.trim().is_empty() {
+        return Err(crate::i18n::tr("err.graph.no_client"));
+    }
+    if refresh_token.trim().is_empty() {
+        return Err(crate::i18n::tr("err.graph.no_token"));
+    }
+    // 先按 `.default` 来（大多数号都吃这套），失败再退到明确范围。
+    // 全都失败时抛**第一条**错误 —— 那是最接近真实原因的那条。
+    let mut first_err: Option<String> = None;
+    for scope in std::iter::once(SCOPE).chain(SCOPES_FALLBACK.iter().copied()) {
+        match try_exchange(client_id, refresh_token, scope) {
+            Ok(t) => return Ok(t),
+            Err(e) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+    }
+    Err(first_err.unwrap_or_else(|| crate::i18n::tr("err.graph.token")))
 }
 
 /// 这个报错是不是「凭据失效」（refresh_token 过期 / 被吊销）。
@@ -264,6 +290,10 @@ pub struct Found {
     pub links: Vec<String>,
     /// 实际看过几封
     pub scanned: usize,
+    /// 最新一封的主题。诊断用：一眼看出「验证信到底到了没」。
+    pub newest_subject: Option<String>,
+    /// 最新一封的收到时间（ISO 串，原样回传）。
+    pub newest_at: Option<String>,
 }
 
 /// 取链接。`top` 是往 Graph 要几封（1~25）。
@@ -293,10 +323,24 @@ pub fn fetch_links(
     let items = v.get("value").and_then(Value::as_array);
     let mut links: Vec<String> = Vec::new();
     let mut scanned = 0usize;
+    let mut newest_subject: Option<String> = None;
+    let mut newest_at: Option<String> = None;
     if let Some(arr) = items {
         for m in arr {
             scanned += 1;
             // 一封一封来：数组本身按 receivedDateTime 倒序，所以先扫到的就是最新的。
+            // 顺手把最新那封的主题/时间记下来，取不到链接时用来判断是「邮件没到」
+            // 还是「到了但没有链接」。
+            if scanned == 1 {
+                newest_subject = m
+                    .get("subject")
+                    .and_then(Value::as_str)
+                    .map(|s| s.chars().take(80).collect::<String>());
+                newest_at = m
+                    .get("receivedDateTime")
+                    .and_then(Value::as_str)
+                    .map(String::from);
+            }
             let mut text = String::new();
             if let Some(c) = m.pointer("/body/content").and_then(Value::as_str) {
                 text.push_str(c);
@@ -323,6 +367,8 @@ pub fn fetch_links(
         Found {
             links: dedup_keep_order(links),
             scanned,
+            newest_subject,
+            newest_at,
         },
         tok.new_refresh_token,
     ))

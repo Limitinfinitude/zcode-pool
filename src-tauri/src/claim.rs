@@ -128,7 +128,18 @@ fn agent() -> ureq::Agent {
 }
 
 pub const EVENT_REPORT_URL: &str = "https://zcode.z.ai/api/v1/event/report";
-pub const ACTIVATION_EVENTS: [&str; 2] = ["app_launch", "app_daily_active"];
+/// 客户端启动/登录时会往 event/report 报的事件。
+///
+/// 前两个是原有实现。`app_login_success` 是照客户端补的 —— 在客户端包里查到它在
+/// OAuth 登录成功后会补报这一条（elementName=app_login_success、
+/// eventRegion=app_profile、eventExtraDetail={login_provider}）。
+///
+/// **实测结论（2026-09-26）：上报事件不会下发 Start Plan。** 拿一个 no_plan 的号
+/// 点「刷新资格」（会走这里）前后各查一次，两次都是 no_plan；直接单发这三个事件
+/// 也一样。真正能拿到 Start Plan 的是**切到该号 + 让 ZCode 客户端登录一次**
+/// （服务端把它挂到账号上）。所以这里保留只是为了**和客户端保持一致**，
+/// 别指望它换出套餐。
+pub const ACTIVATION_EVENTS: [&str; 3] = ["app_launch", "app_daily_active", "app_login_success"];
 const SCREEN_RESOLUTION: &str = "2560x1440";
 const ACTIVATION_TIMEOUT_SECS: u64 = 10;
 
@@ -156,15 +167,20 @@ pub(crate) fn telemetry_user_id(home: &Path, creds: &Value) -> Option<String> {
 }
 
 fn activation_event_body(element: &str, event_id: &str, user_id: &str, mid: &str) -> Value {
+    // app_login_success 在客户端属于 app_profile 区域、带 login_provider —— 照抄。
+    let (region, extra) = match element {
+        "app_login_success" => ("app_profile", serde_json::json!({ "login_provider": "zai" })),
+        _ => ("app", serde_json::json!({})),
+    };
     serde_json::json!({
         "event_id": event_id,
         "client_timezone": quota::client_timezone(),
         "client_language": quota::ZCODE_LANG,
         "element_name": element,
-        "event_region": "app",
+        "event_region": region,
         "event_type": "view",
         "event_text": "",
-        "event_extra_detail": {},
+        "event_extra_detail": extra,
         "user_id": user_id,
         "screen_resolution": SCREEN_RESOLUTION,
         "app_version": quota::zcode_app_version(),
@@ -189,25 +205,47 @@ pub fn report_activation_events(user_id: &str, device_mid: &str) -> Result<(), S
         .timeout_connect(Duration::from_secs(10))
         .timeout(Duration::from_secs(ACTIVATION_TIMEOUT_SECS))
         .build();
-    for element in ACTIVATION_EVENTS {
+    for (i, element) in ACTIVATION_EVENTS.iter().enumerate() {
+        // 第 0 条（app_launch）是关键：它失败要如实报出来。
+        // 后面那些是「照着客户端多报一条」的，服务端不认也不该拖累前面已成功的。
+        let critical = i == 0;
         let body = activation_event_body(
             element,
             &uuid::Uuid::new_v4().to_string(),
             user_id,
             device_mid,
         );
-        let resp = agent
+        let resp = match agent
             .post(EVENT_REPORT_URL)
             .set("Content-Type", "application/json")
             .send_json(body)
-            .map_err(|e| {
-                crate::i18n::trf("err.claim.activate_req", &[("e", http_err("", e).trim())])
-            })?
-            .into_string()
-            .map_err(|e| crate::i18n::trf("err.claim.activate_req", &[("e", &e.to_string())]))?;
-        let v: Value = serde_json::from_str(&resp).unwrap_or(Value::String(resp));
+        {
+            Ok(r) => r,
+            Err(e) => {
+                if critical {
+                    return Err(crate::i18n::trf(
+                        "err.claim.activate_req",
+                        &[("e", http_err("", e).trim())],
+                    ));
+                }
+                continue;
+            }
+        };
+        let text = match resp.into_string() {
+            Ok(t) => t,
+            Err(e) => {
+                if critical {
+                    return Err(crate::i18n::trf(
+                        "err.claim.activate_req",
+                        &[("e", &e.to_string())],
+                    ));
+                }
+                continue;
+            }
+        };
+        let v: Value = serde_json::from_str(&text).unwrap_or(Value::String(text));
         let code = v.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
-        if code != 0 {
+        if code != 0 && critical {
             return Err(failure_message(code, &v));
         }
     }

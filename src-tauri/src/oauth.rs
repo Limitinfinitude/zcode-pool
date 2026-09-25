@@ -595,6 +595,45 @@ pub fn resolve_zai_business_token(zai_access_token: &str) -> Option<String> {
     resolve_zai_business_token_at(ZAI_BUSINESS_LOGIN_URL, zai_access_token)
 }
 
+fn snippet(s: &str) -> String {
+    s.chars().take(180).collect::<String>().replace(['\n', '\r'], " ")
+}
+
+/// 带原因的版本：失败时把响应摘要一并返回。
+///
+/// 原来的实现全是 `.ok()?`，响应体直接丢掉 —— 线上失败只剩一句「换取失败」，
+/// 既不知道是网络、被限流还是响应结构变了。诊断用，不改变成功路径行为。
+pub fn resolve_zai_business_token_diag(zai_access_token: &str) -> (Option<String>, String) {
+    let resp = match web_agent()
+        .post(ZAI_BUSINESS_LOGIN_URL)
+        .set("Content-Type", "application/json")
+        .send_json(json!({ "token": zai_access_token }))
+    {
+        Ok(r) => r,
+        Err(e) => return (None, format!("request-error {e}")),
+    };
+    let status = resp.status();
+    let body = resp.into_string().unwrap_or_default();
+    let v: Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(_) => return (None, format!("bad-json status={status} body={}", snippet(&body))),
+    };
+    let tok = ["access_token", "accessToken"].iter().find_map(|k| {
+        v.pointer(&format!("/data/{k}"))
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    });
+    match tok {
+        Some(t) => (Some(t), String::new()),
+        None => (
+            None,
+            format!("no-token status={status} body={}", snippet(&body)),
+        ),
+    }
+}
+
 fn resolve_zai_business_token_at(url: &str, zai_access_token: &str) -> Option<String> {
     let resp = web_agent()
         .post(url)
