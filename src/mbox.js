@@ -125,7 +125,7 @@ export function mboxPage() {
       <button class="btn" click="actions.mboxVerify()" ${!M.sel.size || b.running ? "disabled" : ""}>${ic("play", 14)} ${t("mb.verify")}${M.sel.size ? ` (${M.sel.size})` : ""}</button>
       <button class="btn" click="actions.mboxStop()" ${b.running ? "" : "disabled"}>${ic("power", 14)} ${t("mb.stop")}</button>
       <span class="spacer"></span>
-      <button class="btn d" click="actions.mboxClear()" ${M.list.length && !b.running ? "" : "disabled"}>${ic("trash", 14)} ${t("mb.clear")}</button>
+      <button class="btn d" click="actions.mboxDelete()" ${M.sel.size && !b.running ? "" : "disabled"}>${ic("trash", 14)} ${t("mb.delete")}${M.sel.size ? ` (${M.sel.size})` : ""}</button>
     </section>
     ${!b.running && M.lastRun
       ? (() => {
@@ -231,14 +231,25 @@ export async function mboxRemove(email) {
   }
 }
 
-export async function mboxClear() {
+/** 当前勾选的邮箱（删除按钮的可点状态、确认框里的清单都用它）。 */
+export function mboxSelection() {
+  return [...M.sel];
+}
+
+/** 删除勾选的邮箱。确认框由调用方弹，这里只管删。 */
+export async function mboxDelete() {
+  const emails = [...M.sel];
+  if (!emails.length) return 0;
   try {
-    await invoke("pool_clear");
+    const r = await invoke("pool_remove_many", { emails });
     M.sel.clear();
     await mboxLoad();
     rerender();
+    toast(t("mb.deleted", { n: r.removed }), "ok");
+    return r.removed;
   } catch (e) {
     toast(String(e).replace(/^[a-z_]+:/, ""), "err");
+    return 0;
   }
 }
 

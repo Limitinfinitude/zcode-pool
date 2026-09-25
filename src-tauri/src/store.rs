@@ -1218,6 +1218,72 @@ fn adopt_virtual_arms_uid(paths: &Paths, acc: &mut Account) -> Result<(), String
     save_account(paths, acc)
 }
 
+/// 导出账号时，把凭据裁到「导入后还能正常切换和查额度」所需的那部分。
+///
+/// 账号快照里的 credentials 是 ZCode 整份凭据表的拷贝。除了 z.ai 的登录令牌，
+/// 它还混着这台机器的其它私密条目 —— 远程工作区的 SSH 密码、外置中继的
+/// pass_hash、bot 凭据。导出文件是要往外传的，一律不带。
+fn export_credentials(creds: &Value) -> Value {
+    let Some(map) = creds.as_object() else { return creds.clone() };
+    let kept = map
+        .iter()
+        .filter(|(k, _)| {
+            let k = k.as_str();
+            k == "zcodejwttoken" || k.starts_with("oauth:") || k.starts_with("account-provider:")
+        })
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect::<serde_json::Map<String, Value>>();
+    Value::Object(kept)
+}
+
+/// 某个供应商条目是不是 z.ai / BigModel 家的。
+///
+/// 内置供应商 id 稳定（`builtin:zai-*` / `builtin:bigmodel-*`）；用户自己加的
+/// 供应商 id 是一串 uuid，光看 id 认不出来，只能按 baseURL 的域名认。
+fn keep_provider(id: &str, entry: &Value) -> bool {
+    let l = id.to_ascii_lowercase();
+    if l.starts_with("builtin:") {
+        return l.contains("zai") || l.contains("bigmodel");
+    }
+    let base = entry
+        .pointer("/options/baseURL")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let rest = base.split_once("://").map(|(_, r)| r).unwrap_or(base);
+    let host = rest
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split('@')
+        .next_back()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    ["z.ai", "bigmodel.cn"]
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
+/// 导出用的 config：只保留 provider，且只保留 z.ai / BigModel 的条目。
+/// 本来就没有快照的账号仍然导 null —— 空 provider 表写到目标机上会把人家自己的
+/// 供应商配置清掉。
+fn export_config(config: Option<&Value>) -> Value {
+    let Some(cfg) = config else { return Value::Null };
+    if !cfg.is_object() {
+        return cfg.clone();
+    }
+    let mut kept = serde_json::Map::new();
+    if let Some(prov) = cfg.get("provider").and_then(|p| p.as_object()) {
+        for (k, v) in prov {
+            if keep_provider(k, v) {
+                kept.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    json!({ "provider": Value::Object(kept) })
+}
+
 pub fn export_bundle_value(accounts: &[Account]) -> Value {
     json!({
         "format": "zcode-accounts-bundle",
@@ -1226,13 +1292,23 @@ pub fn export_bundle_value(accounts: &[Account]) -> Value {
         "accounts": accounts.iter().map(|a| json!({
             "name": a.name,
             "createdAt": a.created_at,
-            "credentials": a.credentials,
-            "config": a.config,
+            "credentials": export_credentials(&a.credentials),
+            // 设备身份：切换时要写回 telemetry。缺了它服务端就认不出这个号，
+            // 导入后额度会查成空的。
+            "virtualDeviceMid": a.virtual_device_mid,
+            "virtualArmsUid": a.virtual_arms_uid,
+            "config": export_config(a.config.as_ref()),
         })).collect::<Vec<_>>(),
     })
 }
 
-type ImportCandidate = (Option<String>, Value, Option<Value>);
+struct ImportCandidate {
+    name: Option<String>,
+    creds: Value,
+    config: Option<Value>,
+    device_mid: Option<String>,
+    arms_uid: Option<String>,
+}
 
 fn import_candidates(v: &Value) -> Result<Vec<ImportCandidate>, String> {
     if v.get("format").and_then(|f| f.as_str()) == Some("zcode-accounts-bundle") {
@@ -1243,11 +1319,14 @@ fn import_candidates(v: &Value) -> Result<Vec<ImportCandidate>, String> {
         let mut out = vec![];
         for item in arr {
             let creds = item.get("credentials").cloned().ok_or(tr("err.bundle.no_creds"))?;
-            out.push((
-                item.get("name").and_then(|n| n.as_str()).map(String::from),
+            let s = |k: &str| item.get(k).and_then(|x| x.as_str()).map(String::from);
+            out.push(ImportCandidate {
+                name: s("name"),
                 creds,
-                item.get("config").cloned(),
-            ));
+                config: item.get("config").cloned(),
+                device_mid: s("virtualDeviceMid"),
+                arms_uid: s("virtualArmsUid"),
+            });
         }
         return Ok(out);
     }
@@ -1268,7 +1347,8 @@ pub fn import_values(paths: &Paths, files: &[(String, Value)]) -> Result<ImportR
                 continue;
             }
         };
-        for (name_opt, creds, config_opt) in cands {
+        for cand in cands {
+            let ImportCandidate { name: name_opt, creds, config, device_mid, arms_uid } = cand;
             if !is_logged_in(&creds) {
                 report.skipped.push(trf("err.import.no_creds", &[("fname", fname.as_str())]));
                 continue;
@@ -1291,9 +1371,9 @@ pub fn import_values(paths: &Paths, files: &[(String, Value)]) -> Result<ImportR
                 updated_at: ts,
                 hash,
                 credentials: creds,
-                config: config_opt,
-                virtual_device_mid: None,
-                virtual_arms_uid: None,
+                config,
+                virtual_device_mid: device_mid,
+                virtual_arms_uid: arms_uid,
             };
             new_accounts.push(acc);
             report.added.push(name);

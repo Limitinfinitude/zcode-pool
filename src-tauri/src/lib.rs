@@ -721,15 +721,18 @@ async fn pool_remove(email: String) -> Result<Value, String> {
     Ok(json!({ "removed": before - accounts.len() }))
 }
 
-/// 清空邮箱池。
+/// 批量删掉池里的邮箱（邮箱库「删除」按钮，只删勾选的那些）。
 #[tauri::command]
-async fn pool_clear() -> Result<Value, String> {
+async fn pool_remove_many(emails: Vec<String>) -> Result<Value, String> {
     let _guard = store_guard();
     let root = Paths::detect().store_dir();
-    let n = pool::load(&root).len();
-    pool::save(&root, &[])?;
+    let mut accounts = pool::load(&root);
+    let before = accounts.len();
+    let targets: Vec<String> = emails.iter().map(|e| e.trim().to_ascii_lowercase()).collect();
+    accounts.retain(|a| !targets.contains(&a.email.trim().to_ascii_lowercase()));
+    pool::save(&root, &accounts)?;
     drop(_guard);
-    Ok(json!({ "removed": n }))
+    Ok(json!({ "removed": before - accounts.len() }))
 }
 
 /// 取某个邮箱的密码给注册表单填。只回密码 + 邮箱，令牌不出后端。
@@ -1532,7 +1535,7 @@ pub fn run() {
             pool_list,
             pool_import_pick,
             pool_remove,
-            pool_clear,
+            pool_remove_many,
             pool_get,
             pool_mark_verified,
             pool_reset,

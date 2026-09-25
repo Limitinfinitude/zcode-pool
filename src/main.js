@@ -6,7 +6,7 @@ import { init, t, has, lang, localeTag, stripErr } from "./i18n.js";
 import { regActive, regStart, regClose, regEvent, setRegSkip } from "./reg.js";
 import {
   setMboxRerender, mboxLoad, mboxPage, mboxFilter, mboxToggle, mboxImport,
-  mboxRemove, mboxClear, mboxVerify, mboxStop, mboxOnOauthDone, mboxRunning, mboxCurrent, mboxStats,
+  mboxRemove, mboxDelete, mboxSelection, mboxVerify, mboxStop, mboxOnOauthDone, mboxRunning, mboxCurrent, mboxStats,
   mboxSelectAll, mboxSelectNone, mboxToggleRow, mboxExport, mboxRetryFailed, mboxDismissResult, mboxUpdateLine, mboxReauth,
   mboxSkipCurrent,
 } from "./mbox.js";
@@ -182,8 +182,31 @@ const actions = {
   async mboxVerify() { await mboxVerify(); },
   async mboxStop() { mboxStop(); },
   async mboxFilter(f) { mboxFilter(f); },
-  async mboxClear() { await mboxClear(); },
-  async mboxExport() { await mboxExport(); },
+  /** 删除勾选的邮箱。按钮只在有勾选时可点，这里再确认一次防误触。 */
+  async mboxDelete() {
+    const emails = mboxSelection();
+    if (!emails.length) return;
+    const shown = emails.slice(0, 6).map(esc).join("<br>");
+    const more = emails.length > 6 ? `<br>${esc(t("mb.deleteListMore", { n: emails.length - 6 }))}` : "";
+    openConfirmModal({
+      kind: "danger",
+      title: t("mb.deleteTitle", { n: emails.length }),
+      desc: `${esc(t("mb.deleteDesc"))}<br><br>${shown}${more}`,
+      yesLabel: t("common.delete"),
+      onYes: async () => { await mboxDelete(); },
+    });
+  },
+  /** 导出邮箱库。文件就是导入用的那个格式，导出前把内容说明白。 */
+  async mboxExport() {
+    openConfirmModal({
+      kind: "warn",
+      icon: "export",
+      title: t("mb.exportTitle"),
+      desc: t("mb.exportWhat"),
+      yesLabel: t("m.exportPick"),
+      onYes: async () => { await mboxExport(); },
+    });
+  },
   async mboxRetryFailed() { await mboxRetryFailed(); },
   async mboxDismissResult() { mboxDismissResult(); },
   async mboxSelectAll(on) { mboxSelectAll(on); },
@@ -293,11 +316,21 @@ const actions = {
     });
   },
 
+  /** 导出单个账号。先把「文件里有什么」说清楚，再让你选保存位置。 */
   async exportOne(id) {
-    await guard(async () => {
-      const p = await invoke("export_one", { id });
-      if (!p.picked) { toast(t("m.exportCanceled")); return; }
-      toast(t("m.exportSaved"), "ok", p.path);
+    openConfirmModal({
+      kind: "warn",
+      icon: "export",
+      title: t("m.exportTitle", { name: accountName(id) }),
+      desc: t("m.exportWhat"),
+      yesLabel: t("m.exportPick"),
+      onYes: async () => {
+        try {
+          const p = await invoke("export_one", { id });
+          if (!p.picked) { toast(t("m.exportCanceled")); return; }
+          toast(t("m.exportSaved"), "ok", p.path);
+        } catch (e) { toast(stripErr(e), "err"); }
+      },
     });
   },
 
@@ -351,12 +384,22 @@ const actions = {
       toast(t("s.savedToast"));
     } catch (e) { toast(stripErr(e), "err"); }
   },
+  /** 导出全部账号。同样先摊开说明文件里有什么。 */
   async exportAll() {
-    try {
-      const p = await invoke("export_all");
-      if (!p.picked) { toast(t("m.exportCanceled")); return; }
-      toast(t("m.exportSavedAll", { count: p.count }), "ok", p.path);
-    } catch (e) { toast(stripErr(e), "err"); }
+    openConfirmModal({
+      kind: "warn",
+      icon: "export",
+      title: t("m.exportAllTitle", { count: (state?.accounts || []).length }),
+      desc: t("m.exportWhat"),
+      yesLabel: t("m.exportPick"),
+      onYes: async () => {
+        try {
+          const p = await invoke("export_all");
+          if (!p.picked) { toast(t("m.exportCanceled")); return; }
+          toast(t("m.exportSavedAll", { count: p.count }), "ok", p.path);
+        } catch (e) { toast(stripErr(e), "err"); }
+      },
+    });
   },
   async importFiles() {
     try {
