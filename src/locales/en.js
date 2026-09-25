@@ -347,6 +347,7 @@ export const en = {
   "reg.log.fetchLinkFound": "Fetched activation link automatically: {a}",
   "reg.log.fetchLinkManual": "Couldn't fetch the link automatically ({a}) — falling back to manual paste",
   "reg.linkNewest": "Scanned {n} message(s); newest is “{s}” — no verification link found",
+  "reg.linkDead": "This mailbox's credentials are dead (refresh_token expired or revoked) — it can no longer receive mail, so this account was skipped. Use “Re-authorize” in the mailbox library to get a fresh one.",
   "reg.linkEmptyBox": "Scanned {n} message(s); nothing else in the mailbox",
   "reg.log.fetchLinkPushFail": "Failed to hand the link to the driver: {a}",
   "reg.log.retry": "Retried manually",

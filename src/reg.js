@@ -213,6 +213,11 @@ function pickLink(links) {
  * 「驱动不持有收信通道」这条边界不变：取信在宿主（这里）做，取到的链接再经
  * reg_input 下发，驱动那边照旧只认「链接到位就打开」。取不到就回落手动粘贴。
  */
+/** 和后端 graph::is_credential_error 同一套判据：refresh_token 过期 / 被吊销。 */
+function isCredentialError(msg) {
+  return /invalid_grant|AADSTS70000|AADSTS70008|AADSTS50173|AADSTS7000215/i.test(String(msg || ""));
+}
+
 async function autoFetchLink() {
   if (!S || linkBusy) return;
   const email = S.signupEmail;
@@ -251,6 +256,13 @@ async function autoFetchLink() {
       // 邮箱工具没配 / 连不上 / 账号不存在 —— 别空转 90 秒，直接交回人手
       fail = stripErr(e);
       pushLog("warn", "fetchLinkErr", fail);
+      // 凭据失效（refresh_token 过期 / 被吊销）是**另一码事**：这个邮箱已经收不了信，
+      // 弹「粘贴链接」纯属白费劲。直接提示 + 自动跳过这个号，让批量继续往下跑。
+      if (isCredentialError(fail)) {
+        toast(t("reg.linkDead"), "err", fail);
+        if (onSkip) onSkip();
+        return;
+      }
       break;
     }
     // 每次轮询都报进度。以前是「第一次 + 每 15 秒一条」，用户容易在静默期

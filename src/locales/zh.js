@@ -347,6 +347,7 @@ export const zh = {
   "reg.log.fetchLinkFound": "自动取到激活链接：{a}",
   "reg.log.fetchLinkManual": "未能自动取链（{a}），改手动粘贴",
   "reg.linkNewest": "已看 {n} 封，最新一封是「{s}」——没找到验证链接",
+  "reg.linkDead": "该邮箱凭据已失效（refresh_token 过期或被吊销），收不了信；已自动跳过这个号。请用邮箱库的「重新授权」换一份新的。",
   "reg.linkEmptyBox": "已看 {n} 封，收件箱里没有别的邮件",
   "reg.log.fetchLinkPushFail": "链接下发失败：{a}",
   "reg.log.retry": "已手动重试",
