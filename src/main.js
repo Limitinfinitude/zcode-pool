@@ -3,11 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import { esc, toast, openConfirmModal, openAddAccountModal, installDelegation } from "./ui.js";
 import { ic } from "./icons.js";
 import { init, t, has, lang, localeTag, stripErr } from "./i18n.js";
-import { regActive, regStart, regClose, regEvent } from "./reg.js";
+import { regActive, regStart, regClose, regEvent, setRegSkip } from "./reg.js";
 import {
   setMboxRerender, mboxLoad, mboxPage, mboxFilter, mboxToggle, mboxImport,
   mboxRemove, mboxClear, mboxVerify, mboxStop, mboxOnOauthDone, mboxRunning, mboxCurrent, mboxStats,
   mboxSelectAll, mboxSelectNone, mboxToggleRow, mboxExport, mboxRetryFailed, mboxDismissResult, mboxUpdateLine, mboxReauth,
+  mboxSkipCurrent,
 } from "./mbox.js";
 
 const $app = document.getElementById("app");
@@ -415,6 +416,37 @@ const actions = {
     loadAcctQuota(id).then(() => {
       if (quotaDue[id] === dueAt) scheduleNext(id);
     });
+  },
+
+  /** 只查这一个账号的「领取资格」——不像「刷新资格」那样整库跑一遍。 */
+  async claimCheck(id) {
+    claimable[id] = { ...(claimable[id] || {}), busy: true };
+    render();
+    try {
+      // 走 claim_refresh 而不是 claim_preview：它会顺手替这个号上报「客户端启动」
+      // 那几个事件（app_launch / app_daily_active / app_login_success）。
+      // 注意：实测**上报并不会下发 Start Plan**（vpsxrq 点完仍是 no_plan），
+      // 上报只是「和客户端保持一致」，别指望它换出套餐。
+      const r = await invoke("claim_refresh", { id });
+      const plans = r?.plans || [];
+      claimable[id] = { plans, err: null, busy: false };
+      const name = accountName(id);
+      const head = plans.length
+        ? t("m.claimFound", { name, count: plans.length })
+        : t("m.claimNone", { name });
+      const more = [];
+      if (r?.activationError) more.push(t("m.claimActivateErr", { err: r.activationError }));
+      else if (r?.activated) more.push(t("m.claimActivated"));
+      toast(
+        head,
+        r?.activationError ? "warn" : plans.length ? "ok" : "warn",
+        more.join(t("common.listSep")) || undefined
+      );
+    } catch (e) {
+      claimable[id] = { plans: claimable[id]?.plans || [], err: stripErr(e), busy: false };
+      toast(stripErr(e), "err");
+    }
+    render();
   },
 
   async addAccount() {
@@ -933,6 +965,7 @@ function rowHtml(a) {
         <div class="row-meta">${meta}</div>
       </div>
       <div class="row-actions">
+        <button class="icon-btn" title="${t("btn.claimCheck")}" aria-label="${t("btn.claimCheck")}" click="actions.claimCheck('${a.id}')">${ic("gift", 16)}</button>
         <button class="icon-btn" title="${t("btn.quota")}" aria-label="${t("btn.quota")}" click="actions.acctQuota('${a.id}')">${ic("gauge", 16)}</button>
         <button class="icon-btn" title="${t("btn.rename")}" aria-label="${t("btn.rename")}" click="actions.rename('${a.id}')">${ic("pen", 16)}</button>
         <button class="icon-btn" title="${t("btn.export")}" aria-label="${t("btn.export")}" click="actions.exportOne('${a.id}')">${ic("export", 16)}</button>
@@ -1246,7 +1279,9 @@ function render() {
         <button class="btn-ghost has-ic" click="actions.exportAll()" ${s.accounts.length ? "" : "disabled"} title="${t("s.exportAllBtn")}">${ic("exportAll", 16)} ${t("btn.export")}</button>
         ${s.zcode_running
           ? `<button class="btn-ghost has-ic" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 16)} ${t("btn.killZcode")}</button>`
-          : `<button class="btn-ghost has-ic" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"}>${ic("play", 14)} ${t("btn.launchZcode")}</button>`}
+          : s.zcode_path_ok
+          ? `<button class="btn-ghost has-ic" click="actions.launch()">${ic("play", 14)} ${t("btn.launchZcode")}</button>`
+          : `<button class="btn-ghost has-ic" click="actions.openSettings()" title="${esc(t("btn.zcodePathBad", { path: s.zcode_path || "-" }))}">${ic("alert", 14)} ${t("btn.fixZcodePath")}</button>`}
         <span class="tb-spacer"></span>
         ${s.accounts.length >= 4
           ? `<input class="list-filter" id="list-filter" type="search" autocomplete="off" spellcheck="false"
@@ -1269,6 +1304,7 @@ window.onRenameKey = (e, id) => {
 };
 installDelegation();
 setMboxRerender(() => { if (!uiLocked()) render(); });
+setRegSkip(() => mboxSkipCurrent());
 
 // 邮箱库的行：勾选 / 全选 / 点行切换 / 删除走事件代理 —— 渲染会重建 DOM，监听挂 document 上。
 document.addEventListener("change", (e) => {
