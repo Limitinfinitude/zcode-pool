@@ -367,7 +367,9 @@ async function runNext() {
   try {
     regStart("register", "zai");
     regBatchSet(email);
-    await invoke("oauth_begin", { provider: "zai", mode: "register" });
+    // batch: true 是**唯一**会打开登录窗自动化的开关（跳注册页/填表/取激活链接）。
+    // 手动「添加」不传，驱动就只旁观。
+    await invoke("oauth_begin", { provider: "zai", mode: "register", batch: true });
   } catch (e) {
     const msg = String(e).replace(/^[a-z_]+:/, "");
     b.done += 1;
@@ -398,6 +400,33 @@ export function mboxStop() {
   invoke("reg_close_window").catch(() => {});
   toast(t("mb.batch.stopped"), "warn");
   rerender();
+}
+
+/**
+ * 跳过当前账号，直接跑下一个。
+ *
+ * 用在「这个号取链失败 / 滑块怎么都过不去」的时候：把当前号记成失败（note 标明是跳过，
+ * 之后可以用邮箱库的「重试失败」捞回来），关掉登录窗，立刻推进队列。
+ * 关窗后旧 flow 可能还会发一次完成事件 —— 那时 `b.current` 已清空，
+ * `mboxOnOauthDone` 拿到空邮箱会直接忽略，不会把队列推快一格。
+ */
+export function mboxSkipCurrent() {
+  const b = M.batch;
+  if (!b.running || !b.current) {
+    toast(t("mb.batch.noCurrent"), "warn");
+    return;
+  }
+  const email = b.current;
+  b.current = "";
+  b.done += 1;
+  const note = t("mb.batch.skipped");
+  b.results.push({ email, ok: false, error: note });
+  invoke("pool_mark_verified", { email, ok: false, note }).catch(() => {});
+  regBatchSet("");
+  invoke("reg_close_window").catch(() => {});
+  toast(t("mb.batch.skippedToast", { email }), "warn");
+  mboxLoad().then(rerender);
+  setTimeout(runNext, 600);
 }
 
 function finishBatch() {

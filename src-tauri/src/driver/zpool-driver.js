@@ -27,16 +27,51 @@
   // 还可能把那个 iframe 本身搞坏。
   if (window.top !== window.self) return;
 
+  // 注：这里曾经挂过一层 `window.initAliyunCaptcha` 钩子，想复用领取那边的
+  // 「无痕验证」（startTracelessVerification）绕开注册页滑块。实测**此路不通**，
+  // 已整段移除，原因记在下面，免得后人再走一遍：
+  //   1. 注册页和领取根本不是同一个阿里云场景 —— 注册页 SceneId=`36qgs6xb`、region=`sgp`；
+  //      领取是 `11xygtvd`、region=`cn`。场景不同，能力不能互相借。
+  //   2. 注册页用的是 **embed 模式**，而 embed 下 startTracelessVerification() 是空操作，
+  //      Promise resolve 出 undefined，压根不产生验证参数。
+  //   3. 想另起一个隐藏的 popup 实例去跑无痕 —— 同一个场景拿不到参数（tracelessGot=empty），
+  //      而且 SDK 只允许一个实例，**第二个 init 会把页面自己的滑块顶掉**，反而无法验证。
+  // 结论：注册页的验证参数只能由页面自己的滑块产生，老老实实让用户滑。
+
   var CFG = window.__ZPOOL_CFG || {};
   var POLL_MS = 900;
-  var FORM_SETTLE_MS = 12000; // 表单填满后留给人过验证的时间
+  // 表单填满后的**兜底**等待上限。正常不该等满：滑块判定有信号就立刻提交。
+  var FORM_SETTLE_MS = 20000;
   var RETRY_BACKOFF_MS = 12000;
   var FINISH_WAIT_MS = 25000;
   var SIGNUP_URL = "https://chat.z.ai/auth?action=signup";
   var STORE_KEY = "zpool-driver-state";
+  // 注册页自愈：驱动用 location.href 强跳 chat.z.ai/auth?action=signup 时，
+  // 实测落地的文档是「没水合的骨架屏」（body 约 3.3K、一个 input 都没有），
+  // 而 location.reload() 一次就必然出水合好的表单（body 约 11K）。
+  // 所以在注册页等不到表单就自动刷新，最多 2 次。
+  var SIGNUP_HYDRATE_MS = 4500;
+  var SIGNUP_RELOAD_MAX = 2;
+  // 注册模式切页策略：优先「点」登录页上的注册入口，让 SPA 自己走客户端路由。
+  // 实测用 location.href 强跳 ?action=signup 是冷加载，落地经常是「没水合的骨架屏」
+  // （body 3.3K~7K、一个表单控件都没有，反复刷新也是 7K 原地踏步），
+  // 而人工流程（点注册）稳定出表单 —— 因为资源已加载、SPA 状态都在。
+  var SIGNUP_ENTRY_RE = /^(注册|免费注册|立即注册|创建账号|Sign up|Create account|Register)$/;
+  // 等「注册」入口出现，同时也是在等登录页把 SPA 的懒加载 chunk 装完。
+  // 实测：登录页 ready 后**立刻**跳注册页必挂（骨架屏，刷两次也救不回），
+  // 等 ~6 秒以上再切就稳 —— 所以这个窗口是承重的，别随意调小。
+  var SIGNUP_ENTRY_WAIT_MS = 9000; // 等注册入口渲染出来的上限
+  var SIGNUP_CLICK_WAIT_MS = 6000; // 点完之后等表单渲染的上限
 
   var S = {
     mode: CFG.mode || "observe",
+    /**
+     * 是否允许**自动跑注册那一套**（跳注册页 / 填表 / 要激活链接）。
+     * 只有「批量自动验证」这条流程会给 true（Rust 侧 oauth_begin 的 batch 参数）。
+     * 手动添加一律 false —— 不管点的是注册还是登录，驱动只旁观。
+     * 抽屉里的「改用邮箱注册」按钮是唯一的显式开关（走 setMode）。
+     */
+    auto: !!CFG.auto,
     provider: CFG.provider || "",
     returnUrl: CFG.return_url || "",
     phase: "",
@@ -66,6 +101,18 @@
     stopped: false,
     lastLogKey: "",
     noteKey: "",
+    /** 注册页等不到表单时，已经自动刷新了几次 */
+    signupReloads: 0,
+    /** 是否已经点过登录页上的「注册」入口 */
+    signupClicked: false,
+    /** 点「注册」入口的时间：用来判断点完多久还没出表单 */
+    signupClickAt: 0,
+    /** 落到当前非注册页的开始时间：用来给「等注册入口出现」计时 */
+    entrySince: 0,
+    /** 上一次报过的验证码现场快照（变了才报，免得刷屏又干扰页面） */
+    capSnap: "",
+    /** 宽限期到了但滑块还没过，只提醒一次（提醒而已，不放行） */
+    gateWarned: false,
     timer: 0
   };
 
@@ -83,6 +130,7 @@
     try {
       sessionStorage.setItem(STORE_KEY, JSON.stringify({
         mode: S.mode,
+        auto: S.auto,
         phase: S.phase,
         asked: S.asked,
         answered: S.answered,
@@ -99,7 +147,11 @@
         submitGateAt: S.submitGateAt,
         lastSubmitAt: S.lastSubmitAt,
         lastLogKey: S.lastLogKey,
-        noteKey: S.noteKey
+        noteKey: S.noteKey,
+        signupReloads: S.signupReloads,
+        signupClicked: S.signupClicked,
+        signupClickAt: S.signupClickAt,
+        entrySince: S.entrySince
       }));
     } catch (e) {
       /* 存储被禁用：退化成不持久，单页内的流程不受影响 */
@@ -116,6 +168,7 @@
     }
     if (!saved || typeof saved !== "object") return;
     if (typeof saved.mode === "string" && saved.mode) S.mode = saved.mode;
+    if (typeof saved.auto === "boolean") S.auto = saved.auto;
     if (typeof saved.phase === "string") S.phase = saved.phase;
     if (saved.asked && typeof saved.asked === "object") S.asked = saved.asked;
     if (saved.answered && typeof saved.answered === "object") S.answered = saved.answered;
@@ -133,6 +186,10 @@
     S.lastSubmitAt = Number(saved.lastSubmitAt) || 0;
     S.lastLogKey = saved.lastLogKey || "";
     S.noteKey = saved.noteKey || "";
+    S.signupReloads = Number(saved.signupReloads) || 0;
+    S.signupClicked = !!saved.signupClicked;
+    S.signupClickAt = Number(saved.signupClickAt) || 0;
+    S.entrySince = Number(saved.entrySince) || 0;
   })();
 
   // ------------------------------------------------------------ 基础工具
@@ -171,6 +228,39 @@
     try {
       window.location.href = url;
     } catch (e) {}
+  }
+
+  /**
+   * 强制整页重新加载（注册页骨架屏没水合时的自愈）。
+   *
+   * 和 navTo 一样：先把回传队列排空、停掉定时器再刷 —— 回传用的 location.href
+   * 和真实导航是同一个通道，排在后面的回传会把这次刷新顶掉。
+   * 刷完 4 秒脚本还活着，说明这次刷新没落地，再重试两次，别让驱动从此哑掉。
+   */
+  function reloadPage() {
+    halted = true;
+    clearTimeout(flushTimer);
+    clearTimeout(retryTimer);
+    flushing = false;
+    drainNow();
+    setTimeout(function () {
+      try {
+        location.reload();
+      } catch (e) {}
+      var tries = 0;
+      function retry() {
+        tries += 1;
+        if (tries > 2) {
+          halted = false;
+          return;
+        }
+        try {
+          location.reload();
+        } catch (e) {}
+        retryTimer = setTimeout(retry, 4000);
+      }
+      retryTimer = setTimeout(retry, 4000);
+    }, 80);
   }
 
   function flush() {
@@ -426,6 +516,17 @@
       })[0];
   }
 
+  /**
+   * 昵称/名称输入框（严格匹配 placeholder）。
+   * 登录页**没有**这个字段，注册表单有 —— 用来把「登录页」和「注册表单」分开。
+   * 不能用 nameInput()：它的兜底会匹配任意 text 输入框，登录页上也可能是真。
+   */
+  function signupNameInput() {
+    return allInputs().filter(function (e) {
+      return /名称|昵称|名字|name/i.test(e.placeholder || "");
+    })[0];
+  }
+
   function probeSignup() {
     var e = emailInput();
     var p = passwordInput();
@@ -443,6 +544,8 @@
       emailOk: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e ? String(e.value || "").trim() : ""),
       pwdOk: p ? String(p.value || "").length >= 6 : false,
       hasCreate: !!findButton(/^(创建账号|注册|Sign up|Create account)$/),
+      /** 注册表单特有的昵称框（登录页没有） */
+      hasNameField: !!signupNameInput(),
       hasVerifyBtn: !!verifyBtn,
       verifyPassed: !verifyBtn && /验证通过|验证成功|Verified/i.test(body),
       sentHint: /验证邮件|已发送|查收|check your email|verify your email/i.test(body),
@@ -500,21 +603,143 @@
    *   2. 隐藏域里出现了 captcha / verify / token 之类的长值（阿里云组件通过后写入）。
    * 都不命中就返回 false —— 退回原来的「等宽限期 + 被拒退避」，宁可慢也别误判。
    */
+  /**
+   * 把主文档 + 开放的 shadow root + 同源 iframe 里的可见文字拼起来。
+   *
+   * 阿里云验证码控件常把 UI 渲染在 shadow root / iframe 内，
+   * `document.body.innerText` 看不到 —— 这正是「滑块明明过了却判不出来、
+   * 只能干等满 12 秒」的原因。跨域 iframe 读不到（正常），交给隐藏域兜底。
+   */
+  function deepText() {
+    var parts = [];
+    var queue = [document];
+    var guard = 0;
+    while (queue.length && guard++ < 40) {
+      var root = queue.shift();
+      try {
+        if (root.body) {
+          if (root.body.innerText) parts.push(root.body.innerText);
+        } else if (root.innerText) {
+          parts.push(root.innerText);
+        }
+      } catch (e) {}
+      var els;
+      try {
+        els = root.querySelectorAll ? root.querySelectorAll("*") : [];
+      } catch (e) {
+        continue;
+      }
+      for (var i = 0; i < els.length && i < 4000; i++) {
+        var el = els[i];
+        try {
+          if (el.shadowRoot) queue.push(el.shadowRoot);
+        } catch (e) {}
+        if (el.tagName === "IFRAME") {
+          try {
+            var d = el.contentDocument;
+            if (d && d.body) queue.push(d);
+          } catch (e) {}
+        }
+      }
+    }
+    return parts.join(" ").replace(/\s+/g, " ");
+  }
+
+  /** 主文档 + 开放 shadow root 里的隐藏域 / 文本域（验证码 token 兜底判断用） */
+  function deepFields() {
+    var out = [];
+    var roots = [document];
+    var guard = 0;
+    while (roots.length && guard++ < 40) {
+      var root = roots.shift();
+      try {
+        var fs = root.querySelectorAll
+          ? root.querySelectorAll('input[type="hidden"], textarea, input[name]')
+          : [];
+        for (var i = 0; i < fs.length; i++) out.push(fs[i]);
+      } catch (e) {}
+      var els;
+      try {
+        els = root.querySelectorAll ? root.querySelectorAll("*") : [];
+      } catch (e) {
+        continue;
+      }
+      for (var j = 0; j < els.length && j < 4000; j++) {
+        try {
+          if (els[j].shadowRoot) roots.push(els[j].shadowRoot);
+        } catch (e) {}
+      }
+    }
+    return out;
+  }
+
+  var CAPTCHA_OK_RE = /验证通过|验证成功|验证完成|已通过|Verified|Success/i;
+  var CAPTCHA_FIELD_RE = /captcha|verify|aliyun|nvc|token|nc_|slide/i;
+
   function captchaVerified() {
     try {
-      if (/验证通过|验证成功|Verified/i.test(bodyText())) return true;
-      var fields = Array.prototype.slice.call(
-        document.querySelectorAll('input[type="hidden"], textarea')
-      );
+      if (CAPTCHA_OK_RE.test(deepText())) return true;
+      var fields = deepFields();
       for (var i = 0; i < fields.length; i++) {
         var f = fields[i];
         var name = (f.name || "") + (f.id || "") + (f.className || "");
-        if (/captcha|verify|aliyun|nvc|token/i.test(name) && String(f.value || "").length >= 16) {
+        if (CAPTCHA_FIELD_RE.test(name) && String(f.value || "").length >= 12) {
           return true;
         }
       }
     } catch (e) {}
     return false;
+  }
+
+  /**
+   * 验证码现场快照（诊断用）。判不出来时靠它定位卡在哪一环：
+   *   ok  —— 文字判据命中没
+   *   nc  —— 阿里云控件容器数（nc_ / aliyun）
+   *   sh  —— 页面里开放 shadow root 数（>0 说明深读有意义）
+   *   ifr —— iframe 数（跨域读不到，只能靠 fL 兜底）
+   *   fL  —— 名字像验证码、且值够长的隐藏域数
+   */
+  /** 「创建账号」按钮状态：验证码校验期间站点一般会禁掉它，放开即代表校验完成 */
+  function createBtnState() {
+    var b = findButton(/^(创建账号|注册|Sign up|Create account)$/);
+    if (!b) return { found: false, disabled: false };
+    var disabled =
+      b.disabled === true ||
+      b.getAttribute("aria-disabled") === "true" ||
+      /disabled/i.test(String(b.className || ""));
+    return { found: true, disabled: disabled };
+  }
+
+  function captchaSnapshot() {
+    var n = function (sel) {
+      try {
+        return document.querySelectorAll(sel).length;
+      } catch (e) {
+        return -1;
+      }
+    };
+    var sh = 0;
+    var ifr = 0;
+    try {
+      var els = document.querySelectorAll("*");
+      for (var i = 0; i < els.length && i < 5000; i++) {
+        if (els[i].shadowRoot) sh++;
+        if (els[i].tagName === "IFRAME") ifr++;
+      }
+    } catch (e) {}
+    var fs = deepFields();
+    var fC = 0; // 名字像验证码、且值够长的域
+    for (var j = 0; j < fs.length; j++) {
+      var nm = (fs[j].name || "") + (fs[j].id || "") + (fs[j].className || "");
+      if (CAPTCHA_FIELD_RE.test(nm) && String(fs[j].value || "").length >= 8) fC++;
+    }
+    var btn = createBtnState();
+    return (
+      "ok=" + (CAPTCHA_OK_RE.test(deepText()) ? 1 : 0) +
+      " nc=" + n("[class*=nc_],[id*=nc_],[class*=aliyun],[id*=aliyun]") +
+      " sh=" + sh + " ifr=" + ifr + " fC=" + fC +
+      " b=" + (btn.found ? (btn.disabled ? "dis" : "on") : "none")
+    );
   }
 
   function checkAgreement() {
@@ -586,13 +811,35 @@
     // 文案 / 隐藏 token 域，任一命中即算过；都没有就退回「等宽限期 + 被拒退避」。
     if (!S.submitGateAt) {
       S.submitGateAt = Date.now() + FORM_SETTLE_MS;
+      S.gateWarned = false;
       saveState();
       note("settle");
     }
-    if (S.submitGateAt > 0 && captchaVerified()) {
-      S.submitGateAt = -1; // 过了：不再等
-      saveState();
-      ok("captchaPassed");
+    if (S.submitGateAt > 0) {
+      // 现场快照：只在变化时上报（免得刷屏、也免得回传把验证码控件顶掉）。
+      var snap = captchaSnapshot();
+      if (snap !== S.capSnap) {
+        S.capSnap = snap;
+        log("capSnapshot", snap);
+      }
+      // 判据只有一条：文字/隐藏域命中「验证通过」。
+      // 试过「提交按钮从禁用到放开」，实测站点**从不**禁按钮（两次失败流程里
+      // b=on bd=0 全程如此），这条判据无效，已删。
+      if (captchaVerified()) {
+        S.submitGateAt = -1; // 过了：立刻提交
+        saveState();
+        ok("captchaPassed");
+      }
+    }
+    // 滑块没判定通过就**绝不提交**。实测提前交上去会把整条流程搞乱
+    // （表单被顶回登录页、后续几个号都得手点）。宁可在这儿等用户过滑块 ——
+    // 宽限期只用来上报状态，不用来放行。
+    if (S.submitGateAt > 0) {
+      if (Date.now() >= S.submitGateAt && !S.gateWarned) {
+        S.gateWarned = true;
+        warn("captchaPending");
+      }
+      return;
     }
     if (S.submitGateAt > 0 && Date.now() < S.submitGateAt) return;
     if (Date.now() - S.lastSubmitAt < RETRY_BACKOFF_MS) return;
@@ -817,6 +1064,10 @@
 
     if (page !== S.page) {
       S.page = page;
+      // 换页了：等注册入口的计时、点完等表单的计时都要重来
+      S.entrySince = 0;
+      S.signupClickAt = 0;
+      saveState();
       log("page", page, String(location.href).slice(0, 140));
       send({ kind: "page", page: page, url: location.href });
     }
@@ -850,7 +1101,7 @@
     }
 
     // 3) BigModel 没有邮箱注册入口，别把它往死路上带
-    if (page === "bigmodel-login" && S.mode === "register") {
+    if (S.auto && page === "bigmodel-login") {
       phase("unsupported");
       note("bigmodelNoEmail");
       S.mode = "login";
@@ -860,8 +1111,14 @@
     //    提交成功后页面会切到「验证邮件已发送」，表单随之消失；
     //    如果先要求「找到邮箱框+密码框」，成功提示这条分支永远走不到，
     //    就会掉进下面的兜底里又跳回注册页、又让人填一遍（实测踩到）。
+    // 从这里往下都是**注册自动化**，只允许在 register 模式下跑。
+    //   批量验证 = register；手动「添加」= observe；登录协助 = login。
+    // 以前这里会把「看起来像注册表单」的页面直接接管，还顺手把模式改成 register ——
+    // 而**登录页也满足 looksSignup**（同样有邮箱+密码，同样有那个「点击开始验证」按钮），
+    // 结果在登录页点一下就被人推去注册、弹出填表框和粘贴链接框，手动加一个已经注册
+    // 好的号根本做不成。手动流程要的是「什么都不做」，所以这里只认模式、不再自作主张。
     var probe = probeSignup();
-    if (S.submitted || probe.sentHint) {
+    if (S.auto && (S.submitted || probe.sentHint)) {
       if (probe.sentHint && !S.submitted) {
         S.submitted = true;
         saveState();
@@ -874,35 +1131,83 @@
     // 5) 注册表单：以 DOM 为准，不以 URL 为准。
     //    SPA 完全可能把内容换成注册表单而地址还停在 /auth，
     //    只认 URL 会出现「明明在注册页却被当成登录页导走」。
-    var looksSignup = probe.hasForm && (probe.hasCreate || probe.hasVerifyBtn || page === "zai-signup");
-    if (looksSignup) {
-      if (S.mode !== "register") S.mode = "register";
+    // 别用 hasCreate 判：登录页同样有「邮箱+密码」和一个「注册」入口，
+    // 实测登录页水合后（body≈13.6K / inputs=2）会被误判成 signup-form，直接在登录页填表。
+    // 只认注册表单特有的特征：昵称框 / 滑块验证按钮 / URL 就是注册页。
+    var looksSignup = probe.hasForm && (probe.hasNameField || probe.hasVerifyBtn || page === "zai-signup");
+    if (S.auto && looksSignup) {
       phase("signup-form");
       await stageSignup();
       return;
     }
 
-    // 6) 已经在注册页：原地等表单出来，**不要再跳**
-    if (page === "zai-signup") {
+    // 6) 已经在注册页：原地等表单出来，**不要再跳**（同样只归注册模式管 ——
+    //    observe 下手动加号时，这个自刷会去 reload 用户正在操作的页面）
+    if (S.auto && page === "zai-signup") {
       if (!S.signupAt) {
         S.signupAt = Date.now();
         saveState();
       }
-      if (Date.now() - S.signupAt > 12000) {
+      // 驱动用 location.href 强跳过来的那份文档常常是「没水合的骨架屏」
+      // （实测 body≈3.3K、inputs=0，干等 12 秒也不出表单）；手动刷新一次必好，
+      // 这里就自动刷 —— 最多 SIGNUP_RELOAD_MAX 次，还出不来才判 unsupported。
+      if (Date.now() - S.signupAt > SIGNUP_HYDRATE_MS) {
+        if ((S.signupReloads || 0) < SIGNUP_RELOAD_MAX) {
+          S.signupReloads = (S.signupReloads || 0) + 1;
+          S.signupAt = 0; // 归零：新文档重新起算等待窗口，别白白多刷一次
+          saveState();
+          log("signupReload", String(S.signupReloads), String(location.href).slice(0, 140));
+          reloadPage();
+          return;
+        }
         phase("unsupported");
         note("noForm");
       }
       return;
     }
 
-    // 7) 还没到注册页：导过去。最多两次 ——
-    //    万一目标页又把人弹回登录页，不能无限来回跳。
-    if (S.mode === "register") {
+    // 7) 还没到注册页：切过去。
+    //
+    // 首选「点」登录页上的注册入口 —— SPA 客户端路由，JS 资源已加载、状态都在，
+    // 表单稳定渲染（人工流程就是这么走的）。location.href 强跳是冷加载，落地经常是
+    // 没水合的骨架屏（body 3.3K~7K、一个表单控件都没有），只能当兜底。
+    if (S.auto) {
+      if (!S.entrySince) {
+        S.entrySince = Date.now();
+        saveState();
+      }
+      if (S.signupClickAt) {
+        // 点过了：等表单渲染，超时才往下走兜底
+        if (Date.now() - S.signupClickAt < SIGNUP_CLICK_WAIT_MS) return;
+        S.signupClickAt = 0;
+        saveState();
+      } else if (!S.signupClicked) {
+        var entry = findButton(SIGNUP_ENTRY_RE);
+        if (entry) {
+          S.signupClicked = true;
+          S.signupClickAt = Date.now();
+          saveState();
+          phase("open-signup");
+          note("openSignup");
+          log("clickSignupEntry", String(location.href).slice(0, 140));
+          // 回传走的是 location.href 跳转，和 SPA 的客户端路由抢同一个通道：
+          // 等这几条回传发完（各 160ms 间隔）再点，别把刚切出来的表单顶掉。
+          setTimeout(function () {
+            try {
+              entry.click();
+            } catch (e) {}
+          }, 500);
+          return;
+        }
+      }
+      // 入口还没渲染出来就继续等着 —— 页面水合要时间，别一上来就冷加载
+      if (Date.now() - S.entrySince < SIGNUP_ENTRY_WAIT_MS) return;
       if ((S.signupTries || 0) < 2) {
         S.signupTries = (S.signupTries || 0) + 1;
         saveState();
         phase("open-signup");
         note("openSignup");
+        log("navSignupFallback", String(S.signupTries));
         navTo(SIGNUP_URL);
         return;
       }
@@ -936,6 +1241,9 @@
       if (!m || typeof m !== "object") return;
       if (m.t === "setMode" && m.mode) {
         S.mode = m.mode;
+        // 「改用邮箱注册」是手动流程里唯一的显式开关：点了才开自动化。
+        // 切回 observe / login 就关掉。
+        S.auto = m.mode === "register";
         S.stopped = false;
         S.backDone = false;
         S.asked = {};

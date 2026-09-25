@@ -382,12 +382,17 @@ async fn oauth_begin(
     app: AppHandle,
     provider: String,
     mode: Option<String>,
+    batch: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     if !oauth::OAUTH_PROVIDERS.iter().any(|p| p.id == provider) {
         return Err(i18n::trf("err.oauth.unknown_provider", &[("provider", &provider)]));
     }
     // observe / login / register —— 登录窗里的注册助手按这个模式工作
     let assist_mode = driver::normalize_mode(mode.as_deref());
+    // 这条流程是不是「批量自动验证」。只有它为 true，登录窗里的驱动才会自动跑注册那
+    // 一套（跳注册页、填表、要激活链接）。手动添加一律 false —— 不管点的是注册还是
+    // 登录，驱动都只旁观，不自动做任何事。
+    let auto = batch.unwrap_or(false);
     let proxy_url: Option<tauri::Url> = match load_settings(&Paths::detect()).auth_proxy() {
         Some(p) => {
             let norm = oauth::parse_proxy_url(p)?;
@@ -400,7 +405,7 @@ async fn oauth_begin(
         let _ = w.close();
     }
     let flow = uuid::Uuid::new_v4().to_string();
-    flowlog::log(&flow, "begin", &format!("provider={provider} proxy={}", if proxy_url.is_some() { "on" } else { "off" }));
+    flowlog::log(&flow, "begin", &format!("provider={provider} auto={auto} proxy={}", if proxy_url.is_some() { "on" } else { "off" }));
     let mid = uuid::Uuid::new_v4().to_string();
     let (p_init, m_init) = (provider.clone(), mid.clone());
     let init = match tauri::async_runtime::spawn_blocking(move || oauth::init_flow(&p_init, &m_init))
@@ -460,8 +465,13 @@ async fn oauth_begin(
         "mode": assist_mode,
         "provider": provider,
         "return_url": init.authorize_url,
+        "auto": auto,
     }));
     let flow_driver = flow.clone();
+    // 注意：注册模式**不能**把窗口直接开在注册页上。实测直开 ?action=signup 是冷启动，
+    // 资源缓存和会话状态都是空的，z.ai 的 SPA 会永远停在骨架屏（body≈2.8K~7K、
+    // 一个表单控件都没有，自刷两次也救不回来）。必须先经过授权页/登录页 ——
+    // 那一趟把同源资源和会话状态都预热好，之后切注册页才渲染得出来。
     let mut builder = tauri::WebviewWindowBuilder::new(
         &app,
         "login",
@@ -605,7 +615,12 @@ async fn reg_fetch_link(email: String, limit: Option<usize>) -> Result<Value, St
             let _ = pool::save(&root, &accounts);
         }
     }
-    Ok(json!({ "links": found.links, "scanned": found.scanned }))
+    Ok(json!({
+        "links": found.links,
+        "scanned": found.scanned,
+        "newestSubject": found.newest_subject,
+        "newestAt": found.newest_at,
+    }))
 }
 
 /// 邮箱池列表（不含密码 / 令牌）。
@@ -977,12 +992,23 @@ fn persist_oauth_account(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| i18n::tr("err.oauth.no_token"))?
         .to_string();
+    // 入库慢在哪得量出来（实测 10~26 秒），别猜 —— 每步耗时都写进 flowlog。
+    let t_all = std::time::Instant::now();
+    let t_biz = std::time::Instant::now();
     let raw_access = oauth::extract_access_token(provider, raw).unwrap_or_default();
     let access_token = if provider == "zai" && !raw_access.is_empty() {
-        oauth::resolve_zai_business_token(&raw_access).ok_or_else(|| i18n::tr("err.oauth.zai_business"))?
+        match oauth::resolve_zai_business_token_diag(&raw_access) {
+            (Some(t), _) => t,
+            (None, why) => {
+                flowlog::log(flow, "zai-business-fail", &why);
+                return Err(i18n::tr("err.oauth.zai_business"));
+            }
+        }
     } else {
         raw_access
     };
+    let ms_biz = t_biz.elapsed().as_millis();
+    let t_user = std::time::Instant::now();
     let userinfo = if poll_ready {
         oauth::extract_poll_user_profile(raw)
     } else {
@@ -994,6 +1020,8 @@ fn persist_oauth_account(
             .flatten()
     });
     let refresh_token = oauth::extract_refresh_token(provider, raw);
+    let ms_user = t_user.elapsed().as_millis();
+    let t_cfg = std::time::Instant::now();
     let credentials = oauth::assemble_credentials_with_token(
         provider,
         &jwt,
@@ -1002,6 +1030,15 @@ fn persist_oauth_account(
         refresh_token.as_deref(),
     );
     let config = oauth::assemble_config(provider, &jwt, &access_token);
+    flowlog::log(
+        flow,
+        "persist-t",
+        &format!(
+            "biz={ms_biz}ms user={ms_user}ms cfg={}ms net-total={}ms",
+            t_cfg.elapsed().as_millis(),
+            t_all.elapsed().as_millis()
+        ),
+    );
 
     let _lock = store_guard();
     if !flow_still_ours() {

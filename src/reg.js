@@ -41,8 +41,8 @@ const MAX_LOGS = 200;
  * 邮件里的激活链接」，命中就经 reg_input 下发给驱动。邮件有延迟，所以轮询。
  * 工具没配 / 连不上 / 超时 → 回落到手动粘贴弹窗，不把流程卡死。
  */
-const LINK_POLL_MS = 5000;
-const LINK_POLL_TRIES = 18; // ≈ 90s
+const LINK_POLL_MS = 3000;
+const LINK_POLL_TRIES = 30; // ≈ 90s
 /** 同一账号最多自动插入几次：驱动反复来要，说明前一条没生效，超过就交回人手 */
 const LINK_MAX_AUTO = 3;
 
@@ -55,6 +55,12 @@ let modal = null;
 let modalKind = null;
 /** 正在轮询取链；防止驱动重复 ask 时并发起多轮 */
 let linkBusy = false;
+
+/** 批量模式下「跳过当前账号」的回调，由 main.js 接到邮箱库的队列上 */
+let onSkip = null;
+export function setRegSkip(fn) {
+  onSkip = fn;
+}
 
 function tr(group, key, params) {
   const k = `${group}.${key}`;
@@ -215,14 +221,20 @@ async function autoFetchLink() {
 
   let link = "";
   let fail = "";
+  // 取不到时用来判断到底是「邮件没到」还是「到了但没有链接」。
+  // 后端会回传最新一封的主题，直接甩进提示里，省得靠猜。
+  let info = "";
   for (let i = 0; i < LINK_POLL_TRIES && !S.closed; i++) {
     try {
-      const r = await invoke("reg_fetch_link", { email, limit: 8 });
+      const r = await invoke("reg_fetch_link", { email, limit: 15 });
       const links = (r && r.links) || [];
       if (links.length) {
         link = pickLink(links);
         break;
       }
+      const n = Number(r && r.scanned) || 0;
+      const subj = String((r && r.newestSubject) || "").trim();
+      info = subj ? t("reg.linkNewest", { n, s: subj }) : t("reg.linkEmptyBox", { n });
       fail = "";
     } catch (e) {
       // 邮箱工具没配 / 连不上 / 账号不存在 —— 别空转 90 秒，直接交回人手
@@ -230,15 +242,15 @@ async function autoFetchLink() {
       pushLog("warn", "fetchLinkErr", fail);
       break;
     }
-    if (i === 0 || (i + 1) % 3 === 0) {
-      pushLog("info", "fetchLinkPolling", String(i + 1));
-      render();
-    }
+    // 每次轮询都报进度。以前是「第一次 + 每 15 秒一条」，用户容易在静默期
+    // 以为卡死了就取消 —— 而验证邮件正常要 8~15 秒才到。
+    pushLog("info", "fetchLinkPolling", String(Math.round(((i + 1) * LINK_POLL_MS) / 1000)), String(i + 1));
+    render();
     await sleep(LINK_POLL_MS);
   }
   linkBusy = false;
 
-  if (!link) return startManualLink(fail || "timeout");
+  if (!link) return startManualLink(fail || info || "timeout");
 
   S.linkAuto += 1;
   try {
@@ -323,6 +335,7 @@ function render() {
       ${S.mode === "register" ? "" : `<button class="btn sm" data-act="to-register">${ic("userPlus", 12)} ${esc(t("reg.btn.toRegister"))}</button>`}
       <button class="btn sm" data-act="reveal">${ic("play", 12)} ${esc(t("reg.btn.reveal"))}</button>
       <button class="btn sm" data-act="retry">${ic("refresh", 12)} ${esc(t("reg.btn.retry"))}</button>
+      ${S.batchEmail ? `<button class="btn sm" data-act="skip">${ic("x", 12)} ${esc(t("reg.btn.skip"))}</button>` : ""}
     </div>
     ${S.note ? `<div class="drw-note">${ic("alert", 14)}<span>${esc(S.note)}</span></div>` : ""}
     ${stepsHtml}
@@ -345,6 +358,9 @@ async function onAction(act) {
     else if (act === "retry") {
       S.failed = false;
       await invoke("reg_action", { action: "retry" });
+    } else if (act === "skip") {
+      if (onSkip) onSkip();
+      return; // 队列已经往前走了，这个抽屉马上会被关掉，不用重画
     } else if (act === "to-register") {
       const m = await invoke("reg_set_mode", { mode: "register" });
       S.mode = m;
