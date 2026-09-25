@@ -7,6 +7,7 @@ release/
 
 # Tauri
 src-tauri/target/
+src-tauri/target-gnu/
 src-tauri/gen/
 
 # Logs
@@ -32,5 +33,9 @@ nul
 *.local
 *.tmp
 *.partial
+
+# Local dev helpers / stray env artifacts
+capture.ps1
+%SystemDrive%/
 
 __pycache__/
