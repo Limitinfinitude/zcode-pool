@@ -409,10 +409,10 @@ fn fmt_units(n: f64) -> String {
             format!("{r:.1}")
         }
     };
-    if n >= 1e8 {
-        format!("{}亿", trim(n / 1e8))
-    } else if n >= 1e4 {
-        format!("{}万", trim(n / 1e4))
+    if n >= 1e6 {
+        format!("{}M", trim(n / 1e6))
+    } else if n >= 1e3 {
+        format!("{}K", trim(n / 1e3))
     } else {
         format!("{}", n.round() as i64)
     }

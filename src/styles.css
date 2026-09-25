@@ -556,20 +556,31 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dash-hero-lb { font-size: 13px; color: var(--label-2); }
 .dash-hero-meta { font-size: 11.5px; color: var(--label-3); }
 
-.gauges { display: flex; gap: 14px; min-width: 0; overflow-x: auto; padding: 4px 0 4px 20px; border-left: 1px solid var(--sep); flex: 1; }
-.mgauge { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 84px; flex: none; }
-.mgauge-name { font-size: 12px; color: var(--label-3); max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gauges { display: flex; gap: 20px; min-width: 0; overflow-x: auto; padding: 4px 0 4px 22px; border-left: 1px solid var(--sep); flex: 1; }
+.mgauge { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1 1 102px; min-width: 102px; }
+.mgauge-name { font-size: 12.5px; color: var(--label-3); max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 刻度盘本体 */
-.gauge { width: 78px; height: 78px; flex: none; }
-.gauge.big { width: 104px; height: 104px; }
-.gauge .g-track { stroke: rgba(255, 255, 255, .1); }
-.gauge .g-fill { stroke: var(--blue); transition: stroke-dasharray .55s cubic-bezier(.2, .8, .2, 1); }
-.gauge.warn .g-fill { stroke: var(--orange); }
-.gauge.danger .g-fill { stroke: var(--red); }
-.gauge .g-num { font-family: var(--mono); font-size: 20px; font-weight: 700; fill: var(--label); }
-.gauge.big .g-num { font-size: 21px; }
-.gauge .g-sub { font-family: var(--mono); font-size: 9px; fill: var(--label-3); }
+.gauge { width: 96px; height: 96px; flex: none; color: var(--blue); overflow: visible; }
+.gauge.big { width: 130px; height: 130px; }
+.gauge.warn { color: var(--orange); }
+.gauge.danger { color: var(--red); }
+.gauge .g-track { stroke: #79849a; }
+.gauge .g-tick { stroke: var(--label-4); stroke-width: .7; stroke-linecap: round; }
+.gauge .g-tick.major { stroke: var(--label-2); stroke-width: 1.1; }
+.gauge .g-halo { stroke: currentColor; opacity: .2; transition: stroke-dasharray .55s cubic-bezier(.2, .8, .2, 1); }
+.gauge .g-fill { transition: stroke-dasharray .55s cubic-bezier(.2, .8, .2, 1); }
+.gauge .g-cap {
+  fill: currentColor; transform-box: view-box; transform-origin: 50px 50px;
+  transition: transform .55s cubic-bezier(.2, .8, .2, 1);
+  filter: drop-shadow(0 0 3px currentColor);
+}
+.gauge .g-num { font-family: var(--mono); font-size: 13px; font-weight: 700; fill: var(--label); }
+.gauge.big .g-num { font-size: 18px; }
+.gauge .g-pct { font-family: var(--mono); font-size: 9px; font-weight: 600; fill: currentColor; opacity: .85; }
+.gauge.big .g-pct { font-size: 10.5px; }
+.gauge .g-sub { font-family: var(--mono); font-size: 8.5px; fill: var(--label-3); }
+.gauge.big .g-sub { font-size: 9.5px; }
 .sm-empty { font-size: 12.5px; color: var(--label-3); }
 
 /* 设备码授权：大号等宽码 */
@@ -637,7 +648,7 @@ button { white-space: nowrap; }
 .q-win-label { width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .q-win-reset:empty { display: none; }
 .q-nums { min-width: 88px; text-align: right; font-variant-numeric: tabular-nums; }
-.dash-hero-meta { max-width: 190px; line-height: 1.7; }
+.dash-hero-meta { max-width: none; line-height: 1.7; }
 .dash-refresh { align-self: flex-start; margin: 4px 0 0 -10px; }
 .mail-overview { margin: 0 var(--page-pad) 22px; padding: 18px 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--sep); border-radius: var(--r-lg); background: var(--card); }
 .mail-overview > div { display: flex; flex-direction: column; padding: 0 20px; border-right: 1px solid var(--sep); }
@@ -681,7 +692,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .side-brand { padding-left: 10px; padding-right: 0; }
   .side-brand .mark { font-size: 20px; }
   .dash { gap: 12px; padding: 12px; }
-  .gauge.big { width: 88px; height: 88px; }
+  .gauge.big { width: 120px; height: 120px; }
   .gauges { padding-left: 12px; }
   .row-actions { gap: 0; }
   .row[data-id] { padding: 15px; }
@@ -701,7 +712,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .row-actions { margin-left: auto; }
   .dash-hero { gap: 6px; }
   .dash-hero-meta { max-width: 150px; font-size: 11px; }
-  .gauge.big { width: 74px; height: 74px; }
+  .gauge { width: 84px; height: 84px; }
+  .gauge.big { width: 104px; height: 104px; }
   .list-filter { flex: 1; min-width: 140px; }
 }
 @media (max-height: 560px) {

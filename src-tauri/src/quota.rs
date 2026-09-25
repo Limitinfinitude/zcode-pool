@@ -227,6 +227,8 @@ pub struct QuotaItem {
     pub unit_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Default)]
@@ -921,6 +923,8 @@ fn normalize_quota_limit(limit_resp: &Value, sub_resp: Option<&Value>) -> QuotaO
             window: Some(window),
             unit_code: (unit_code != "").then(|| unit_code.to_string()),
             reset,
+            source_key: l.get("entitlement_id").or_else(|| l.get("plan_id")).or_else(|| l.get("id"))
+                .and_then(Value::as_str).map(String::from),
         };
         if typ == "TIME_LIMIT" && total.is_some() {
             main = main.or(Some(item.clone()));
@@ -1213,6 +1217,10 @@ fn normalize_balance(balance_data: &Value) -> QuotaOverview {
                 .get("remaining_units")
                 .and_then(to_number)
                 .or_else(|| item.get("available_units").and_then(to_number));
+            // 保留每个额度桶（daily / one_time / weekly / monthly …）用于展示，
+            // 不再按周期白名单丢弃；同一 entitlement 的前端汇总会按来源去重。
+            let period = item.get("period").or_else(|| item.get("window"))
+                .and_then(Value::as_str).map(str::to_lowercase);
             let it = QuotaItem {
                 name: ["show_name", "name", "entitlement_id", "plan_id"]
                     .iter()
@@ -1228,7 +1236,11 @@ fn normalize_balance(balance_data: &Value) -> QuotaOverview {
                 },
                 server_percentage: None,
                 unit: item.get("unit_type").or_else(|| item.get("meter")).and_then(Value::as_str).unwrap_or("quota").to_string(),
+                window: period.clone(),
                 period_end: ["period_end", "expires_at"].iter().find_map(|k| item.get(k).and_then(expiry_field)),
+                source_key: ["entitlement_id", "plan_id", "planId", "id"]
+                    .iter()
+                    .find_map(|k| item.get(k).and_then(Value::as_str).map(String::from)),
                 ..Default::default()
             };
             let bpid = ["plan_id", "planId", "entitlement_id"]
@@ -1250,6 +1262,84 @@ fn normalize_balance(balance_data: &Value) -> QuotaOverview {
                     s.items.push(it);
                 }
                 None => loose.push(it),
+            }
+        }
+    }
+
+    // plans[].entitlements 里声明、但 balances 中尚未落桶的 token 额度（例如
+    // “ZCode Global Build” 那个 1 亿一次性赠额，只挂在计划上、balances 里没有对应桶），
+    // 用 grant_units 补一条，否则该计划会显示成没有额度的空组。
+    if let Some(arr) = balance.get("plans").and_then(|p| p.as_array()) {
+        for pl in arr {
+            let pid = ["plan_id", "planId"]
+                .iter()
+                .find_map(|k| pl.get(k).and_then(Value::as_str))
+                .unwrap_or("");
+            let Some(ents) = pl.get("entitlements").and_then(|e| e.as_array()) else {
+                continue;
+            };
+            for e in ents {
+                if e.get("meter").and_then(Value::as_str) != Some("model_usage") {
+                    continue;
+                }
+                let unit_type = e
+                    .get("unit_type")
+                    .and_then(Value::as_str)
+                    .or_else(|| e.get("unitType").and_then(Value::as_str));
+                if unit_type != Some("token") {
+                    continue;
+                }
+                let eid = ["entitlement_id", "entitlementId"]
+                    .iter()
+                    .find_map(|k| e.get(k).and_then(Value::as_str))
+                    .unwrap_or("");
+                let already = !eid.is_empty()
+                    && (slots.iter().any(|s| {
+                        s.items
+                            .iter()
+                            .any(|it| it.source_key.as_deref() == Some(eid))
+                    }) || loose
+                        .iter()
+                        .any(|it| it.source_key.as_deref() == Some(eid)));
+                if already {
+                    continue;
+                }
+                let Some(total) = e
+                    .get("grant_units")
+                    .and_then(to_number)
+                    .or_else(|| e.get("grantUnits").and_then(to_number))
+                else {
+                    continue;
+                };
+                let name = ["show_name", "showName", "entitlement_id", "entitlementId"]
+                    .iter()
+                    .find_map(|k| e.get(k).and_then(Value::as_str))
+                    .unwrap_or("Unknown")
+                    .to_string();
+                let period = e
+                    .get("period")
+                    .or_else(|| e.get("window"))
+                    .and_then(Value::as_str)
+                    .map(str::to_lowercase);
+                let it = QuotaItem {
+                    name,
+                    total: Some(total),
+                    used: Some(0.0),
+                    remaining: Some(total),
+                    percent_used: Some(0.0),
+                    server_percentage: None,
+                    unit: unit_type.unwrap_or("token").to_string(),
+                    window: period,
+                    period_end: ["ends_at", "expires_at", "period_end"]
+                        .iter()
+                        .find_map(|k| pl.get(k).and_then(expiry_field)),
+                    source_key: (!eid.is_empty()).then(|| eid.to_string()),
+                    ..Default::default()
+                };
+                match slots.iter_mut().find(|s| !pid.is_empty() && s.pid == pid) {
+                    Some(s) => s.items.push(it),
+                    None => loose.push(it),
+                }
             }
         }
     }

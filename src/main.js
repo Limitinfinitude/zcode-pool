@@ -713,7 +713,6 @@ function winRowHtml(it, cls = "") {
 function fmtTokens(n) {
   if (n == null) return "";
   if (lang() === "zh") {
-    if (n >= 1e8) return (n / 1e8).toFixed(n % 1e8 === 0 ? 0 : 1) + "亿";
     if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + "M";
     if (n >= 1e3) return Math.round(n / 1e3) + "K";
     return String(Math.round(n));
@@ -795,8 +794,12 @@ function slotRowsHtml(items) {
   const best = new Map();
   for (const it of list) {
     if (isWin(it)) continue;
-    const cur = best.get(it.name);
-    if (!cur || (it.total || 0) > (cur.total || 0)) best.set(it.name, it);
+    // 不按模型名覆盖：不同 entitlement（例如领取的专项一亿）必须各自显示。
+    const source = String(it.source_key || "").trim()
+      || [it.name || "?", it.total ?? "", it.remaining ?? "", it.reset || ""].join("|");
+    const key = (it.name || "?") + "|" + source;
+    const cur = best.get(key);
+    if (!cur || quotaWindowRank(it) > quotaWindowRank(cur)) best.set(key, it);
   }
   const pools = [...best.values()].sort((a, b) => (b.total || 0) - (a.total || 0));
   return [
@@ -841,17 +844,13 @@ function acctQuotaSlot(id) {
     const reauth = /过期|expired|401|无效|invalid/i.test(q.err);
     inner = `${reauth ? `<span class="chip err">${t("q.reauth")}</span> ` : ""}<span class="aq-err">${esc(msg)}</span>`;
   } else if (q?.data) {
+    // 一个账号里的每个额度套餐都单独成组展示，组内列出全部条目（窗口 + 余额桶），
+    // 不再因为“存在提示次数窗口”就把领取的专项/周末桶整组丢弃。
     const plans = q.data.plans || [];
-    if (plans.length >= 2) {
+    if (plans.length) {
       inner = plans.map(planGroupHtml).join("");
     } else {
-      const items = q.data.items || [];
-      const wins = items.filter((it) => itemKind(it) === "prompt_count");
-      if (wins.length) {
-        inner = wins.map((it) => winRowHtml(it, " mini")).join("");
-      } else {
-        inner = slotRowsHtml(items);
-      }
+      inner = slotRowsHtml(q.data.items || []);
     }
   }
   if (!strip && !inner) return `<div class="row-quota-slot"></div>`;
@@ -977,6 +976,22 @@ function applyFilter() {
 }
 
 /** 汇总：把所有账号已查到的额度**按模型累加**。 */
+function quotaWindowRank(it) {
+  const w = String(it.window || "").toLowerCase();
+  if (w === "daily") return 50;
+  if (w.startsWith("hours:")) return 40;
+  if (w === "weekly") return 30;
+  if (w === "monthly") return 20;
+  return 10;
+}
+
+function quotaSourceKey(it) {
+  const source = String(it.source_key || "").trim();
+  if (source) return source;
+  return [it.name || "?", it.total ?? "", it.remaining ?? "", it.reset || ""].join("|");
+}
+
+/** 汇总额度：同一来源只取每天窗口；不同 entitlement（含专项额度）全部相加。 */
 function quotaSummary() {
   const byModel = new Map();
   let ready = 0;
@@ -984,15 +999,23 @@ function quotaSummary() {
     const q = acctQuota[a.id];
     if (!q?.data) continue;
     ready++;
-    const items = [];
-    for (const it of q.data.items || []) items.push(it);
-    for (const p of q.data.plans || []) for (const it of p.items || []) items.push(it);
+    const plans = Array.isArray(q.data.plans) ? q.data.plans : [];
+    const items = plans.length
+      ? plans.flatMap((p) => Array.isArray(p.items) ? p.items : [])
+      : (Array.isArray(q.data.items) ? q.data.items : []);
+    const bySource = new Map();
     for (const it of items) {
+      const model = String(it.name || "?").replace(/^GLM-?/i, "").trim() || "?";
+      const key = model + "\u0000" + quotaSourceKey(it);
+      const prev = bySource.get(key);
+      if (!prev || quotaWindowRank(it) > quotaWindowRank(prev)) bySource.set(key, it);
+    }
+    for (const it of bySource.values()) {
       const name = String(it.name || "?").replace(/^GLM-?/i, "").trim() || "?";
       const cur = byModel.get(name) || { name, remaining: 0, total: 0, pctSum: 0, n: 0 };
-      if (it.remaining != null) cur.remaining += it.remaining;
-      if (it.total != null) cur.total += it.total;
-      if (it.percent_used != null) { cur.pctSum += it.percent_used; cur.n += 1; }
+      if (it.remaining != null) cur.remaining += Number(it.remaining);
+      if (it.total != null) cur.total += Number(it.total);
+      if (it.percent_used != null) { cur.pctSum += Number(it.percent_used); cur.n += 1; }
       byModel.set(name, cur);
     }
   }
@@ -1000,18 +1023,48 @@ function quotaSummary() {
   return { models, ready };
 }
 
-/** 一个圆形刻度盘（270° 弧，像汽车仪表）。pct = 剩余百分比 0..100。 */
-function gaugeSvg(pct, big, sub, cls) {
-  const C = 251.327; // 2πr, r=40
-  const ARC = 188.495; // 270°
-  const keep = (ARC * Math.max(0, Math.min(100, pct))) / 100;
-  return `<svg viewBox="0 0 100 100" class="gauge${cls ? " " + cls : ""}">
-    <circle class="g-track" cx="50" cy="50" r="40" fill="none" stroke-width="9" stroke-linecap="round"
-      stroke-dasharray="${ARC} ${C}" transform="rotate(135 50 50)"/>
-    <circle class="g-fill" cx="50" cy="50" r="40" fill="none" stroke-width="9" stroke-linecap="round"
-      stroke-dasharray="${keep} ${C}" transform="rotate(135 50 50)"/>
-    <text class="g-num" x="50" y="49" text-anchor="middle">${esc(big)}</text>
-    ${sub ? `<text class="g-sub" x="50" y="66" text-anchor="middle">${esc(sub)}</text>` : ""}
+let __gaugeSeq = 0;
+/** 圆形刻度盘：270° 弧 + 刻度 + 渐变发光填充 + 读数端点。pct = 剩余百分比 0..100。 */
+function gaugeSvg(pct, big, sub, cls = "", pctLabel = "") {
+  const uid = "geq" + ++__gaugeSeq;
+  const isBig = /\bbig\b/.test(cls);
+  const p = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
+  const CX = 50, CY = 50, R = 36, START = 135, SWEEP = 270;
+  const C = 2 * Math.PI * R;
+  const ARC = (C * SWEEP) / 360;
+  const keep = (ARC * p) / 100;
+  const rad = (d) => (d * Math.PI) / 180;
+  const pt = (d, rr) => [CX + rr * Math.cos(rad(d)), CY + rr * Math.sin(rad(d))];
+  let ticks = "";
+  if (isBig) {
+    for (let i = 0; i <= 27; i++) {
+      const d = START + (SWEEP * i) / 27;
+      const major = i % 3 === 0;
+      const [x1, y1] = pt(d, major ? 40.5 : 41.5);
+      const [x2, y2] = pt(d, major ? 45 : 43);
+      ticks += `<line class="g-tick${major ? " major" : ""}" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`;
+    }
+  }
+  const stops = /\bdanger\b/.test(cls)
+    ? ["#ff7a86", "#ffb4bc"]
+    : /\bwarn\b/.test(cls)
+    ? ["#e0a24e", "#ffd79a"]
+    : ["#5c93ff", "#a9cbff"];
+  const endD = START + (SWEEP * p) / 100;
+  const dash = (len) =>
+    `stroke-dasharray="${len.toFixed(1)} ${C.toFixed(1)}" transform="rotate(${START} ${CX} ${CY})"`;
+  return `<svg viewBox="0 0 100 100" class="gauge${cls ? " " + cls : ""}" role="img">
+    <defs><linearGradient id="${uid}" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="${stops[0]}"/><stop offset="1" stop-color="${stops[1]}"/>
+    </linearGradient></defs>
+    ${ticks}
+    <circle class="g-track" cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke-width="7" stroke-linecap="round" ${dash(ARC)}/>
+    <circle class="g-halo" cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke-width="15" stroke-linecap="round" ${dash(keep)}/>
+    <circle class="g-fill" cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="url(#${uid})" stroke-width="7" stroke-linecap="round" ${dash(keep)}/>
+    ${p > 0.8 ? `<circle class="g-cap" cx="${CX + R}" cy="${CY}" r="2.6" style="transform:rotate(${endD.toFixed(1)}deg)"/>` : ""}
+    ${pctLabel ? `<text class="g-pct" x="${CX}" y="${isBig ? 33 : 38}" text-anchor="middle">${esc(pctLabel)}</text>` : ""}
+    <text class="g-num" x="${CX}" y="${isBig ? 53 : 56}" text-anchor="middle">${esc(big)}</text>
+    ${sub ? `<text class="g-sub" x="${CX}" y="70" text-anchor="middle">${esc(sub)}</text>` : ""}
   </svg>`;
 }
 
@@ -1028,7 +1081,7 @@ function statsHtml(s) {
       const cls = rem <= 10 ? " danger" : rem <= 30 ? " warn" : "";
       const sub = m.total ? `${fmtTokens(m.total)}` : t("st.noTotal");
       return `<div class="mgauge">
-        ${gaugeSvg(rem, m.total ? fmtTokens(m.remaining) : "—", sub, cls)}
+        ${gaugeSvg(rem, m.total ? fmtTokens(m.remaining) : "—", sub, cls, Math.round(rem) + "%")}
         <span class="mgauge-name" title="${esc(m.name)}">${esc(m.name)}</span>
       </div>`;
     })
@@ -1036,7 +1089,7 @@ function statsHtml(s) {
   return `
   <div class="dash">
     <div class="dash-hero">
-      ${gaugeSvg(sumPct, sumTot ? fmtTokens(sumRem) : "—", "", " big")}
+      ${gaugeSvg(sumPct, sumTot ? fmtTokens(sumRem) : "—", sumTot ? fmtTokens(sumTot) : "", " big", sumTot ? Math.round(sumPct) + "%" : "")}
       <div class="dash-hero-txt">
         <div class="dash-hero-lb">${t("st.totalTokens")}</div>
         <div class="dash-hero-meta">${t("st.meta", { a: s.accounts.length, m: models.length, r: ready })}</div>
