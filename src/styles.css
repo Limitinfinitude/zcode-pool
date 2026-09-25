@@ -588,6 +588,19 @@ button { white-space: nowrap; }
 .side-footer .nav-item { width: 100%; }
 .side-status { display: flex; align-items: center; gap: 8px; padding: 2px 12px 14px; color: var(--label-3); font-size: 11px; }
 .side-status.unsaved .status-dot { background: var(--orange); }
+.side-status .ss-text { white-space: nowrap; }
+.zc-btn {
+  margin-left: auto; appearance: none; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 9px; border-radius: 980px; line-height: 1;
+  border: 1px solid var(--sep); background: var(--fill); color: var(--label-2);
+  font-family: var(--sans); font-size: 11px; white-space: nowrap;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+.zc-btn:hover:not(:disabled) { color: var(--label); border-color: var(--line-2); }
+.zc-btn.on { color: var(--red); border-color: rgba(255, 146, 155, .45); }
+.zc-btn.on:hover:not(:disabled) { background: rgba(255, 146, 155, .12); }
+.zc-btn:disabled { opacity: .4; cursor: default; }
 .content-h .sub { font-variant-numeric: tabular-nums; }
 .btn, .btn-primary, .btn-ghost, .btn-switch, .btn-claim, .tog-inline {
   min-height: 34px; border-radius: var(--r-sm); line-height: 1.25;

@@ -1142,11 +1142,14 @@ function render() {
       </nav>
       <div class="nav-spacer"></div>
       <div class="side-footer">
-        <div class="side-status${unsaved ? " unsaved" : ""}"><span class="status-dot ${dotCls}"></span><span>${esc(statusText)}</span></div>
+        <div class="side-status${unsaved ? " unsaved" : ""}">
+          <span class="status-dot ${dotCls}"></span>
+          <span class="ss-text">${esc(statusText)}</span>
+          ${s.zcode_running
+            ? `<button class="zc-btn on" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 12)} ${t("btn.killZcode")}</button>`
+            : `<button class="zc-btn" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"} title="${t("btn.launchZcode")}">${ic("play", 11)} ${t("btn.launchZcode")}</button>`}
+        </div>
         <button class="nav-item${tab === "settings" ? " on" : ""}" aria-current="${tab === "settings" ? "page" : "false"}" click="actions.openSettings()">${ic("sliders", 17)} ${t("common.settings")}</button>
-        ${s.zcode_running
-          ? `<button class="nav-item" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 17)} ${t("btn.killZcode")}</button>`
-          : `<button class="nav-item" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"} title="${t("btn.launchZcode")}">${ic("play", 16)} ${t("btn.launchZcode")}</button>`}
       </div>
     </aside>`;
 
