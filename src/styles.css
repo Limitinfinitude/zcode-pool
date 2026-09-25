@@ -529,3 +529,57 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .mb-fail:last-child { border-bottom: 0; }
 .mb-fail-mail { font-family: var(--mono); color: var(--label); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mb-fail-why { color: var(--err); flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ============================================================================
+ * 现代感增强（2025）：渐变强调、悬浮卡片、玻璃层次、柔和高光
+ * ==========================================================================*/
+body {
+  background:
+    radial-gradient(1200px 760px at 16% -12%, #13233f 0%, transparent 55%),
+    radial-gradient(900px 640px at 112% 6%, #1b1630 0%, transparent 50%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+.sidebar { background: linear-gradient(180deg, rgba(30, 32, 38, .78), rgba(17, 18, 22, .78)); backdrop-filter: blur(20px); }
+.nav-item { border-radius: 10px; }
+.nav-item.on { background: linear-gradient(135deg, #2f6bff, #0a84ff); box-shadow: 0 8px 20px -8px rgba(10, 132, 255, .65); }
+
+.btn.p { background: linear-gradient(135deg, #2f8bff, #0a6cff); box-shadow: 0 6px 16px -7px rgba(10, 132, 255, .6); }
+.btn.p:hover:not(:disabled) { filter: none; box-shadow: 0 10px 24px -8px rgba(10, 132, 255, .75); transform: translateY(-1px); }
+.btn { transition: background .14s ease, color .14s ease, filter .12s ease, box-shadow .16s ease, transform .16s ease; }
+
+.group, .grp, .stats { position: relative; border-color: rgba(255, 255, 255, .08); box-shadow: 0 12px 34px -20px rgba(0, 0, 0, .95); }
+.group::before, .grp::before, .stats::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .055), transparent 42%);
+}
+
+.row { transition: background .14s ease; }
+.row:hover { background: rgba(255, 255, 255, .05); }
+.content-h h1 { font-size: 22px; letter-spacing: -.02em; }
+
+.modal { animation: pop-in .18s cubic-bezier(.2, .9, .3, 1.15); }
+@keyframes pop-in { from { opacity: 0; transform: scale(.965) translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* 汇总统计条 */
+.stats { margin: 0 20px 14px; padding: 18px; display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; border: 1px solid var(--sep); border-radius: var(--r-lg); background: var(--card); }
+.stat-cells { display: flex; gap: 26px; flex: none; }
+.stat-cell { display: flex; flex-direction: column; }
+.stat-cell b {
+  font-size: 27px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05;
+  background: linear-gradient(135deg, #eaf2ff, #8fb8ff); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.stat-cell span { font-size: 11.5px; color: var(--label-3); margin-top: 3px; }
+.stats-models { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 9px; padding-top: 2px; }
+.smodel { display: flex; align-items: center; gap: 10px; }
+.sm-name { flex: none; width: 120px; font-size: 12.5px; color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smodel .qbar { flex: 1; }
+.sm-empty { font-size: 12.5px; color: var(--label-3); }
+
+/* 设备码授权：大号等宽码 */
+.reauth-code {
+  font-family: var(--mono); font-size: 30px; font-weight: 700; letter-spacing: .16em;
+  text-align: center; color: var(--label); background: var(--fill);
+  border-radius: var(--r); padding: 16px 12px; user-select: all;
+}

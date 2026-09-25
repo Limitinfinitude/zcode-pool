@@ -110,6 +110,50 @@ export function openConfirmModal(m) {
   (m.focusNo || kind === "danger" ? no : yes).focus();
 }
 
+/** 粘一行文本的小弹窗（用于「更新凭据」）。onSubmit(value) 返回 Promise。 */
+export function openLineModal(m) {
+  document.querySelector(".ov.line")?.remove();
+  const ov = document.createElement("div");
+  ov.className = "ov line";
+  ov.innerHTML = `
+    <div class="modal wide" role="dialog" aria-modal="true">
+      <div class="mhead">${ic("pen", 16)} <span>${esc(m.title)}</span>
+        <span class="spacer"></span>
+        <button class="iconbtn lm-x" style="color:var(--label-2)">${ic("x", 15)}</button>
+      </div>
+      <div class="mbody">
+        <div class="mnote" style="margin-bottom:12px">${esc(m.hint || "")}</div>
+        <label class="fld"><span>${esc(m.label || "")}</span>
+          <textarea class="inp" rows="3" placeholder="${esc(m.placeholder || "")}" spellcheck="false"></textarea></label>
+        <div class="errline"></div>
+      </div>
+      <div class="mfoot">
+        <button class="btn g lm-cancel">${t("common.cancel")}</button>
+        <button class="btn p lm-go">${ic("check", 14)} ${t("common.save")}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+
+  const ta = ov.querySelector("textarea");
+  const err = ov.querySelector(".errline");
+  const go = ov.querySelector(".lm-go");
+  const close = () => ov.remove();
+  ov.querySelector(".lm-x").addEventListener("click", close);
+  ov.querySelector(".lm-cancel").addEventListener("click", close);
+  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+  ov.querySelector(".modal").addEventListener("click", (e) => e.stopPropagation());
+  const submit = async () => {
+    const v = ta.value.trim();
+    if (!v) return (err.textContent = t("mb.updateHint"));
+    go.disabled = true;
+    try { await m.onSubmit?.(v); close(); }
+    catch (e) { err.textContent = stripErr(e); go.disabled = false; }
+  };
+  go.addEventListener("click", submit);
+  ta.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit(); });
+  setTimeout(() => ta.focus(), 30);
+}
+
 /**
  * 添加账号：选一个登录站点，在登录窗里**手动**登录。
  * 不做任何自动化 —— 自动注册 / 验证在「邮箱库」那边的批量自动验证里。

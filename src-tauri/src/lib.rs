@@ -736,6 +736,94 @@ async fn pool_reset(app: AppHandle, email: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 用一行 `email----password----client_id----refresh_token` 覆盖 / 新增邮箱
+/// （换 refresh_token 时用）：找到就覆盖并重置为「未验证」，找不到就新增。
+#[tauri::command]
+async fn pool_upsert(app: AppHandle, line: String) -> Result<Value, String> {
+    let Some((email, password, client_id, refresh_token)) = pool::parse_lines(&line).into_iter().next() else {
+        return Err(i18n::tr("err.pool.bad_line"));
+    };
+    let _guard = store_guard();
+    let root = Paths::detect().store_dir();
+    let mut accounts = pool::load(&root);
+    let updated = if let Some(a) = pool::find_mut(&mut accounts, &email) {
+        a.password = password;
+        a.client_id = client_id;
+        a.refresh_token = refresh_token;
+        a.status = pool::STATUS_NEW.to_string();
+        a.note = None;
+        true
+    } else {
+        accounts.push(pool::MailAccount {
+            email: email.clone(),
+            password,
+            client_id,
+            refresh_token,
+            status: pool::STATUS_NEW.to_string(),
+            verified_at: None,
+            note: None,
+            created_at: store::now_ts(),
+        });
+        false
+    };
+    pool::save(&root, &accounts)?;
+    drop(_guard);
+    let _ = app.emit("pool-changed", ());
+    Ok(json!({ "email": email, "updated": updated }))
+}
+
+/// 起一个「重新授权」：用该邮箱自己的 client_id 走设备码流，拿新 refresh_token。
+#[tauri::command]
+async fn outlook_reauth_begin(email: String) -> Result<Value, String> {
+    let root = Paths::detect().store_dir();
+    let accounts = pool::load(&root);
+    let acc = pool::find(&accounts, &email)
+        .ok_or_else(|| i18n::trf("err.pool.not_found", &[("email", email.trim())]))?;
+    let cid = acc.client_id.clone();
+    let d = graph::device_code_begin(&cid)?;
+    Ok(json!({
+        "client_id": cid,
+        "device_code": d.device_code,
+        "user_code": d.user_code,
+        "verification_uri": d.verification_uri,
+        "interval": d.interval,
+        "expires_in": d.expires_in,
+    }))
+}
+
+/// 轮询设备码授权；成功后把新 refresh_token 写回池并重置为「未验证」。
+#[tauri::command]
+async fn outlook_reauth_poll(
+    app: AppHandle,
+    email: String,
+    client_id: String,
+    device_code: String,
+) -> Result<Value, String> {
+    let p = graph::device_code_poll(&client_id, &device_code)?;
+    if p.pending {
+        return Ok(json!({ "pending": true }));
+    }
+    let Some(rt) = p.refresh_token else {
+        return Ok(json!({ "pending": true }));
+    };
+    {
+        let _guard = store_guard();
+        let root = Paths::detect().store_dir();
+        let mut accounts = pool::load(&root);
+        if let Some(a) = pool::find_mut(&mut accounts, &email) {
+            a.refresh_token = rt;
+            if a.client_id.trim().is_empty() {
+                a.client_id = client_id;
+            }
+            a.status = pool::STATUS_NEW.to_string();
+            a.note = None;
+            pool::save(&root, &accounts)?;
+        }
+    }
+    let _ = app.emit("pool-changed", ());
+    Ok(json!({ "pending": false, "ok": true }))
+}
+
 /// 主窗 -> 登录窗：切换助手模式（登录 / 邮箱注册）。
 #[tauri::command]
 async fn reg_set_mode(app: AppHandle, mode: String) -> Result<String, String> {
@@ -1371,6 +1459,9 @@ pub fn run() {
             pool_get,
             pool_mark_verified,
             pool_reset,
+            pool_upsert,
+            outlook_reauth_begin,
+            outlook_reauth_poll,
             set_auth_proxy,
             kill_zcode,
             set_behavior,

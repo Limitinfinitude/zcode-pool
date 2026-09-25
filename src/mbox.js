@@ -11,7 +11,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n.js";
 import { ic } from "./icons.js";
-import { esc, toast } from "./ui.js";
+import { esc, toast, openLineModal } from "./ui.js";
 import { regStart, regBatchSet } from "./reg.js";
 
 let rerender = () => {};
@@ -85,6 +85,8 @@ export function mboxPage() {
         <span class="mail">${esc(a.email)}</span>
         ${badge(a)}
         <span class="when">${esc(a.verified_at || "")}</span>
+        ${a.status === "invalid" ? `<button class="btn sm mb-reauth" data-reauth="${esc(a.email)}">${esc(t("mb.reauth"))}</button>` : ""}
+        <button class="iconbtn mb-edit" data-edit="${esc(a.email)}" title="${esc(t("mb.update"))}" ${b.running ? "disabled" : ""}>${ic("pen", 14)}</button>
         <button class="iconbtn mb-del" data-del="${esc(a.email)}" title="${esc(t("mb.remove"))}" ${b.running ? "disabled" : ""}>${ic("x", 14)}</button>
       </div>`
         )
@@ -241,6 +243,93 @@ export async function mboxExport() {
   } catch (e) {
     toast(String(e).replace(/^[a-z_]+:/, ""), "err");
   }
+}
+
+/** 更新某个邮箱的凭据：粘一行新的覆盖掉（换 refresh_token 时用）。 */
+export function mboxUpdateLine(email) {
+  openLineModal({
+    title: t("mb.updateTitle", { email }),
+    hint: t("mb.updateHint"),
+    label: t("mb.updateLine"),
+    placeholder: "email----password----client_id----refresh_token",
+    onSubmit: async (line) => {
+      const r = await invoke("pool_upsert", { line });
+      await mboxLoad();
+      rerender();
+      toast(t("mb.updated", { email: r.email }), "ok");
+    },
+  });
+}
+
+/**
+ * 内置「重新授权」：走微软设备码流，拿新 refresh_token 自动写回池。
+ * 不用再去 OutlookEmail 里手动授权了。
+ */
+export async function mboxReauth(email) {
+  let info;
+  try {
+    info = await invoke("outlook_reauth_begin", { email });
+  } catch (e) {
+    toast(String(e).replace(/^[a-z_]+:/, ""), "err");
+    return;
+  }
+  const ov = document.createElement("div");
+  ov.className = "ov reauth";
+  ov.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="mhead">${ic("lock", 16)} <span>${esc(t("mb.reauthTitle", { email }))}</span></div>
+      <div class="mbody">
+        <div class="mnote" style="margin-bottom:12px">${esc(t("mb.reauthHint"))}</div>
+        <div class="reauth-code">${esc(info.user_code)}</div>
+        <div class="line" style="margin-top:10px">
+          <button class="btn g ra-open">${ic("export", 14)} ${esc(t("mb.reauthOpen"))}</button>
+          <button class="btn g ra-copy">${esc(t("mb.reauthCopy"))}</button>
+        </div>
+        <div class="errline ra-err"></div>
+      </div>
+      <div class="mfoot"><button class="btn g ra-close">${t("common.cancel")}</button></div>
+    </div>`;
+  document.body.appendChild(ov);
+  const errEl = ov.querySelector(".ra-err");
+  let stopped = false;
+  const close = () => {
+    stopped = true;
+    ov.remove();
+  };
+  ov.querySelector(".ra-open").addEventListener("click", () => invoke("open_external", { url: info.verification_uri }).catch(() => {}));
+  ov.querySelector(".ra-copy").addEventListener("click", () => { navigator.clipboard?.writeText(info.user_code).catch(() => {}); });
+  ov.querySelector(".ra-close").addEventListener("click", close);
+  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+
+  const gap = Math.max(3, info.interval || 5) * 1000;
+  const max = Math.ceil((info.expires_in || 900) / Math.max(3, info.interval || 5));
+  let tries = 0;
+  const tick = async () => {
+    if (stopped) return;
+    tries += 1;
+    if (tries > max) {
+      errEl.textContent = t("mb.reauthExpired");
+      return;
+    }
+    try {
+      const r = await invoke("outlook_reauth_poll", { email, clientId: info.client_id, deviceCode: info.device_code });
+      if (!r.pending) {
+        toast(t("mb.reauthOk", { email }), "ok");
+        close();
+        await mboxLoad();
+        rerender();
+        return;
+      }
+    } catch (e) {
+      const msg = String(e).replace(/^[a-z_]+:/, "");
+      if (/expired|declined|denied|bad_verification|not.?found|invalid/i.test(msg)) {
+        errEl.textContent = msg;
+        return;
+      }
+    }
+    setTimeout(tick, gap);
+  };
+  setTimeout(tick, 1500);
 }
 
 // ---------------------------------------------------------------- 批量验证

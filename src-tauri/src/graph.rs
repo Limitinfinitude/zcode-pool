@@ -112,6 +112,87 @@ pub fn is_credential_error(msg: &str) -> bool {
         || msg.contains("AADSTS7000215")
 }
 
+const DEVICE_CODE_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
+/// 要拿 refresh_token，必须带 `offline_access`
+const DEVICE_SCOPE: &str = "https://graph.microsoft.com/.default offline_access";
+
+pub struct DeviceCode {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub interval: u64,
+    pub expires_in: u64,
+}
+
+/// 起一个设备码授权流程（**拿新的 refresh_token 用**）。
+///
+/// 用邮箱自己的 client_id。设备码流不需要重定向 URI，桌面端最省事：
+/// 用户去 microsoft.com/devicelogin 输码，这边轮询换 token。
+pub fn device_code_begin(client_id: &str) -> Result<DeviceCode, String> {
+    if client_id.trim().is_empty() {
+        return Err(crate::i18n::tr("err.graph.no_client"));
+    }
+    let v: Value = agent()
+        .post(DEVICE_CODE_URL)
+        .set("Content-Type", "application/x-www-form-urlencoded")
+        .send_form(&[("client_id", client_id.trim()), ("scope", DEVICE_SCOPE)])
+        .map_err(|e| http_err(&crate::i18n::tr("err.graph.device"), e))?
+        .into_json()
+        .map_err(|e| crate::i18n::trf("err.graph.token_json", &[("e", &e.to_string())]))?;
+    Ok(DeviceCode {
+        device_code: v.get("device_code").and_then(Value::as_str).unwrap_or("").to_string(),
+        user_code: v.get("user_code").and_then(Value::as_str).unwrap_or("").to_string(),
+        verification_uri: v
+            .get("verification_uri")
+            .and_then(Value::as_str)
+            .unwrap_or("https://microsoft.com/devicelogin")
+            .to_string(),
+        interval: v.get("interval").and_then(Value::as_u64).unwrap_or(5),
+        expires_in: v.get("expires_in").and_then(Value::as_u64).unwrap_or(900),
+    })
+}
+
+pub struct DevicePoll {
+    /// 还没授权（authorization_pending / slow_down）
+    pub pending: bool,
+    pub refresh_token: Option<String>,
+}
+
+/// 轮询设备码授权。pending 时 refresh_token 为 None；成功即带出新 token。
+pub fn device_code_poll(client_id: &str, device_code: &str) -> Result<DevicePoll, String> {
+    let resp = agent()
+        .post(TOKEN_URL)
+        .set("Content-Type", "application/x-www-form-urlencoded")
+        .send_form(&[
+            ("client_id", client_id.trim()),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("device_code", device_code),
+        ]);
+    match resp {
+        Ok(r) => {
+            let v: Value = r.into_json().unwrap_or(Value::Null);
+            let rt = v.get("refresh_token").and_then(Value::as_str).map(String::from);
+            Ok(DevicePoll { pending: rt.is_none(), refresh_token: rt })
+        }
+        Err(ureq::Error::Status(code, r)) => {
+            let body = r.into_string().unwrap_or_default();
+            let parsed = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+            let err = parsed.get("error").and_then(Value::as_str).unwrap_or("");
+            if err == "authorization_pending" || err == "slow_down" {
+                Ok(DevicePoll { pending: true, refresh_token: None })
+            } else {
+                let desc = parsed
+                    .get("error_description")
+                    .and_then(Value::as_str)
+                    .map(|s| s.chars().take(160).collect::<String>())
+                    .unwrap_or_default();
+                Err(format!("HTTP {code} {err} {desc}"))
+            }
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// HTML 正文里的实体还原。不还原的话 `&amp;` 会把 token 参数污染成
 /// `&amp;token=`，点过去直接 404。
 fn html_unescape(s: &str) -> String {

@@ -7,7 +7,7 @@ import { regActive, regStart, regClose, regEvent } from "./reg.js";
 import {
   setMboxRerender, mboxLoad, mboxPage, mboxFilter, mboxToggle, mboxImport,
   mboxRemove, mboxClear, mboxVerify, mboxStop, mboxOnOauthDone, mboxRunning, mboxCurrent, mboxStats,
-  mboxSelectAll, mboxSelectNone, mboxToggleRow, mboxExport, mboxRetryFailed, mboxDismissResult,
+  mboxSelectAll, mboxSelectNone, mboxToggleRow, mboxExport, mboxRetryFailed, mboxDismissResult, mboxUpdateLine, mboxReauth,
 } from "./mbox.js";
 
 const $app = document.getElementById("app");
@@ -962,6 +962,55 @@ function applyFilter() {
   if (main) main.innerHTML = listHtmlFor(state, filteredAccounts(state));
 }
 
+/** 汇总：把所有账号已查到的额度**按模型累加**。 */
+function quotaSummary() {
+  const byModel = new Map();
+  let ready = 0;
+  for (const a of state.accounts) {
+    const q = acctQuota[a.id];
+    if (!q?.data) continue;
+    ready++;
+    const items = [];
+    for (const it of q.data.items || []) items.push(it);
+    for (const p of q.data.plans || []) for (const it of p.items || []) items.push(it);
+    for (const it of items) {
+      const name = String(it.name || "?").replace(/^GLM-?/i, "").trim() || "?";
+      const cur = byModel.get(name) || { name, remaining: 0, total: 0, pctSum: 0, n: 0 };
+      if (it.remaining != null) cur.remaining += it.remaining;
+      if (it.total != null) cur.total += it.total;
+      if (it.percent_used != null) { cur.pctSum += it.percent_used; cur.n += 1; }
+      byModel.set(name, cur);
+    }
+  }
+  const models = [...byModel.values()].sort((a, b) => (b.total || 0) - (a.total || 0));
+  return { models, ready };
+}
+
+/** 账号库顶部的汇总条：总账号数 + 分模型额度累加。 */
+function statsHtml(s) {
+  const { models, ready } = quotaSummary();
+  const rows = models
+    .slice(0, 6)
+    .map((m) => {
+      const pct = m.total ? Math.max(0, 100 - (m.remaining / m.total) * 100) : m.n ? m.pctSum / m.n : null;
+      return `<div class="smodel">
+        <span class="sm-name" title="${esc(m.name)}">${esc(m.name)}</span>
+        ${quotaBarHtml(pct)}
+        <span class="q-nums">${m.total ? `${fmtTokens(m.remaining)} / ${fmtTokens(m.total)}` : ""}</span>
+      </div>`;
+    })
+    .join("");
+  return `
+  <div class="stats">
+    <div class="stat-cells">
+      <div class="stat-cell"><b>${s.accounts.length}</b><span>${t("st.accounts")}</span></div>
+      <div class="stat-cell"><b>${ready}</b><span>${t("st.ready")}</span></div>
+      <div class="stat-cell"><b>${models.length}</b><span>${t("st.models")}</span></div>
+    </div>
+    <div class="stats-models">${rows || `<div class="sm-empty">${t("st.noQuota")}</div>`}</div>
+  </div>`;
+}
+
 /** 设置页（页内视图，不再另开窗口）。 */
 function settingsView(s) {
   const row = (on, attr, label, desc) => `
@@ -1077,6 +1126,7 @@ function render() {
           <span class="status-text">${esc(statusText)}</span>
         </div>
       </div>
+      ${statsHtml(s)}
       <section class="toolbar">
         <button class="btn-primary has-ic" click="actions.capture()" ${!s.live_logged_in || active ? "disabled" : ""}
           title="${active ? esc(t("m.saveLoginDisabledTitle", { name: active.name })) : ""}">
@@ -1145,6 +1195,10 @@ document.addEventListener("click", (e) => {
   if (!e.target || !e.target.closest) return;
   const del = e.target.closest(".mb-del");
   if (del) { e.preventDefault(); mboxRemove(del.dataset.del).then(() => render()); return; }
+  const edit = e.target.closest(".mb-edit");
+  if (edit) { e.preventDefault(); mboxUpdateLine(edit.dataset.edit); return; }
+  const reauth = e.target.closest(".mb-reauth");
+  if (reauth) { e.preventDefault(); mboxReauth(reauth.dataset.reauth); return; }
   if (e.target.closest("button, input, select, a, label")) return; // 控件自己处理
   const row = e.target.closest(".row[data-email]");
   if (row) mboxToggleRow(row.dataset.email);
