@@ -93,6 +93,8 @@ export const zh = {
   "st.ready": "已查额度",
   "st.models": "个模型",
   "st.noQuota": "额度查询中…",
+  "st.totalTokens": "剩余 Tokens",
+  "st.noTotal": "无总量数据",
 
   "mb.title": "MAILBOX · 邮箱库",
   "mb.import": "导入 txt",

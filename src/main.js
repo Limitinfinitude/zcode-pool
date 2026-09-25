@@ -986,28 +986,36 @@ function quotaSummary() {
   return { models, ready };
 }
 
-/** 账号库顶部的汇总条：总账号数 + 分模型额度累加。 */
+/** 账号库顶部：仪表盘式汇总（总账号 + 剩余 Tokens + 分模型卡片）。 */
 function statsHtml(s) {
   const { models, ready } = quotaSummary();
-  const rows = models
-    .slice(0, 6)
+  const sumRem = models.reduce((a, m) => a + (m.remaining || 0), 0);
+  const sumTot = models.reduce((a, m) => a + (m.total || 0), 0);
+  const cards = models
+    .slice(0, 8)
     .map((m) => {
-      const pct = m.total ? Math.max(0, 100 - (m.remaining / m.total) * 100) : m.n ? m.pctSum / m.n : null;
-      return `<div class="smodel">
-        <span class="sm-name" title="${esc(m.name)}">${esc(m.name)}</span>
+      const usedPct = m.total ? (m.remaining / m.total) * 100 : m.n ? 100 - m.pctSum / m.n : null;
+      const pct = usedPct == null ? null : Math.max(0, Math.min(100, 100 - usedPct));
+      return `<div class="mcard">
+        <div class="mcard-h">
+          <span class="mcard-name" title="${esc(m.name)}">${esc(m.name)}</span>
+          ${usedPct != null ? `<span class="mcard-pct">${Math.round(usedPct)}%</span>` : ""}
+        </div>
+        <div class="mcard-num">${m.total ? fmtTokens(m.remaining) : "—"}</div>
+        <div class="mcard-sub">${m.total ? `${esc(t("q.remainingShort"))} / ${fmtTokens(m.total)}` : esc(t("st.noTotal"))}</div>
         ${quotaBarHtml(pct)}
-        <span class="q-nums">${m.total ? `${fmtTokens(m.remaining)} / ${fmtTokens(m.total)}` : ""}</span>
       </div>`;
     })
     .join("");
   return `
-  <div class="stats">
-    <div class="stat-cells">
-      <div class="stat-cell"><b>${s.accounts.length}</b><span>${t("st.accounts")}</span></div>
-      <div class="stat-cell"><b>${ready}</b><span>${t("st.ready")}</span></div>
-      <div class="stat-cell"><b>${models.length}</b><span>${t("st.models")}</span></div>
+  <div class="dash">
+    <div class="dash-kpis">
+      <div class="kpi hl"><b>${sumTot ? fmtTokens(sumRem) : "—"}</b><span>${t("st.totalTokens")}</span></div>
+      <div class="kpi"><b>${s.accounts.length}</b><span>${t("st.accounts")}</span></div>
+      <div class="kpi"><b>${models.length}</b><span>${t("st.models")}</span></div>
+      <div class="kpi"><b>${ready}</b><span>${t("st.ready")}</span></div>
     </div>
-    <div class="stats-models">${rows || `<div class="sm-empty">${t("st.noQuota")}</div>`}</div>
+    <div class="dash-grid">${cards || `<div class="sm-empty">${t("st.noQuota")}</div>`}</div>
   </div>`;
 }
 

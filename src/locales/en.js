@@ -93,6 +93,8 @@ export const en = {
   "st.ready": "with quota",
   "st.models": "models",
   "st.noQuota": "Loading quota…",
+  "st.totalTokens": "Tokens left",
+  "st.noTotal": "no total data",
 
   "mb.title": "MAILBOX · Pool",
   "mb.import": "Import txt",
