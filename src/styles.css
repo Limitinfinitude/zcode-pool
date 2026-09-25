@@ -556,9 +556,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dash-hero-lb { font-size: 13px; color: var(--label-2); }
 .dash-hero-meta { font-size: 11.5px; color: var(--label-3); }
 
-.gauges { display: flex; gap: 20px; min-width: 0; overflow-x: auto; padding: 4px 0 4px 22px; border-left: 1px solid var(--sep); flex: 1; }
-.mgauge { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1 1 102px; min-width: 102px; }
+.gauges { display: flex; gap: 16px; min-width: 0; overflow-x: auto; padding: 4px 0 4px 22px; border-left: 1px solid var(--sep); flex: 1; }
+.mgauge { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100px; flex: none; }
 .mgauge-name { font-size: 12.5px; color: var(--label-3); max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; flex: none; }
 
 /* 刻度盘本体 */
 .gauge { width: 96px; height: 96px; flex: none; color: var(--blue); overflow: visible; }
@@ -692,7 +693,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .side-brand { padding-left: 10px; padding-right: 0; }
   .side-brand .mark { font-size: 20px; }
   .dash { gap: 12px; padding: 12px; }
-  .gauge.big { width: 120px; height: 120px; }
+  .gauge { width: 84px; height: 84px; }
+  .gauge.big { width: 108px; height: 108px; }
+  .mgauge { width: 88px; }
   .gauges { padding-left: 12px; }
   .row-actions { gap: 0; }
   .row[data-id] { padding: 15px; }
@@ -714,6 +717,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .dash-hero-meta { max-width: 150px; font-size: 11px; }
   .gauge { width: 84px; height: 84px; }
   .gauge.big { width: 104px; height: 104px; }
+  .mgauge { width: 84px; }
+  .dash { flex-wrap: wrap; }
+  .dash-actions { flex-direction: row; }
   .list-filter { flex: 1; min-width: 140px; }
 }
 @media (max-height: 560px) {

@@ -1071,6 +1071,7 @@ function gaugeSvg(pct, big, sub, cls = "", pctLabel = "") {
 /** 账号库顶部：仪表盘（总剩余 Tokens + 分模型刻度盘）+ 手动刷新。 */
 function statsHtml(s) {
   const { models, ready } = quotaSummary();
+  const active = s.accounts.find((a) => a.is_active) || null;
   const sumRem = models.reduce((a, m) => a + (m.remaining || 0), 0);
   const sumTot = models.reduce((a, m) => a + (m.total || 0), 0);
   const sumPct = sumTot ? (sumRem / sumTot) * 100 : 100;
@@ -1097,6 +1098,19 @@ function statsHtml(s) {
       </div>
     </div>
     <div class="gauges">${gauges || `<div class="sm-empty">${t(s.accounts.length ? "st.noQuota" : "st.emptyQuota")}</div>`}</div>
+    <div class="dash-actions">
+      <button class="btn-primary has-ic" click="actions.capture()" ${!s.live_logged_in || active ? "disabled" : ""}
+        title="${active ? esc(t("m.saveLoginDisabledTitle", { name: active.name })) : ""}">
+        ${ic("capture", 16)} ${t("btn.saveLogin")}
+      </button>
+      <button class="tog-inline${s.auto_claim ? " on" : ""}${autoClaimRunning ? " running" : ""}"
+        role="switch" aria-checked="${s.auto_claim}" aria-label="${t("btn.autoClaim")}"
+        title="${autoPillTitle(s)}"
+        click="actions.toggleAutoClaim()">
+        <span class="toggle${s.auto_claim ? " on" : ""}" aria-hidden="true"><span class="knob"></span></span>
+        ${t("btn.autoClaim")}
+      </button>
+    </div>
   </div>`;
 }
 
@@ -1135,15 +1149,6 @@ function settingsView(s) {
             <input class="inp mono auth-proxy" type="text" value="${esc(s.auth_proxy_url || "")}"
               placeholder="${t("s.proxyPh")}" keydown="onProxyKey(event)">
             <button class="btn g" click="actions.saveProxy()">${t("common.save")}</button>
-          </div>
-        </div>
-      </div>
-      <div class="grp">
-        <div class="gh">${t("s.libLabel")}</div>
-        <div class="gb">
-          <div class="rowbtns">
-            <button class="btn" click="actions.importFiles()">${ic("import", 15)} ${t("s.importBtn")}</button>
-            <button class="btn" click="actions.exportAll()" ${s.accounts.length ? "" : "disabled"}>${ic("exportAll", 15)} ${t("s.exportAllBtn")}</button>
           </div>
         </div>
       </div>
@@ -1221,10 +1226,6 @@ function render() {
       </div>
       ${statsHtml(s)}
       <section class="toolbar">
-        <button class="btn-primary has-ic" click="actions.capture()" ${!s.live_logged_in || active ? "disabled" : ""}
-          title="${active ? esc(t("m.saveLoginDisabledTitle", { name: active.name })) : ""}">
-          ${ic("capture", 16)} ${t("btn.saveLogin")}
-        </button>
         ${claimableCount > 0
           ? `<button class="btn-ghost has-ic claim-all" click="actions.claimAll()" ${claimAllRunning || refreshClaim.running || autoClaimRunning ? "disabled" : ""}
               title="${t("btn.claimAllTitle")}">${ic("gift", 16)} ${t("btn.claimAll")}${claimableCount > 1 ? ` (${claimableCount})` : ""}</button>`
@@ -1240,14 +1241,9 @@ function render() {
                 : esc(t("btn.refreshClaim"))}
             </button>`
           : ""}
-        <button class="tog-inline${s.auto_claim ? " on" : ""}${autoClaimRunning ? " running" : ""}"
-          role="switch" aria-checked="${s.auto_claim}" aria-label="${t("btn.autoClaim")}"
-          title="${autoPillTitle(s)}"
-          click="actions.toggleAutoClaim()">
-          <span class="toggle${s.auto_claim ? " on" : ""}" aria-hidden="true"><span class="knob"></span></span>
-          ${t("btn.autoClaim")}
-        </button>
         <button class="btn-ghost has-ic" click="actions.addAccount()" title="${t("btn.addAccountTitle")}">${ic("userPlus", 16)} ${t("btn.addAccount")}</button>
+        <button class="btn-ghost has-ic" click="actions.importFiles()" title="${t("s.importBtn")}">${ic("import", 16)} ${t("btn.import")}</button>
+        <button class="btn-ghost has-ic" click="actions.exportAll()" ${s.accounts.length ? "" : "disabled"} title="${t("s.exportAllBtn")}">${ic("exportAll", 16)} ${t("btn.export")}</button>
         ${s.zcode_running
           ? `<button class="btn-ghost has-ic" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 16)} ${t("btn.killZcode")}</button>`
           : `<button class="btn-ghost has-ic" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"}>${ic("play", 14)} ${t("btn.launchZcode")}</button>`}
@@ -1410,8 +1406,6 @@ async function sweepTick() {
     ticking = false;
   }
 }
-
-installDelegation();
 
 // 账号筛选：输入框由 render() 生成，这里用事件委托接管，重画列表不会打断输入
 document.addEventListener("input", (e) => {

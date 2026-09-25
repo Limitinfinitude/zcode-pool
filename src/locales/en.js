@@ -20,7 +20,7 @@ export const en = {
   "prov.short.zai": "z.ai",
 
   "m.status.running": "ZCode running",
-  "m.status.unsaved": "Unsaved login",
+  "m.status.unsaved": "Current login unsaved",
   "m.status.safe": "Safe to switch",
   "m.status.loggedOut": "Not logged in",
   "m.toastSaved": "Saved current login as \"{name}\"",
@@ -170,6 +170,7 @@ export const en = {
   "btn.quota": "Quota",
   "btn.rename": "Rename",
   "btn.export": "Export",
+  "btn.import": "Import",
   "btn.delete": "Delete",
   "btn.renameMeta": "Enter to save · Esc to cancel",
 
@@ -212,7 +213,6 @@ export const en = {
   "s.proxyToggle": "Proxy for the sign-in window",
   "s.proxyToggleDesc": "The z.ai login page routes by exit IP: mainland IPs only get phone-number login; email login needs an overseas exit. When on, only the login window opened by \"Add account\" uses this proxy; quota / claim / switch traffic is unchanged",
   "s.proxyPh": "http://127.0.0.1:7890 or socks5://127.0.0.1:1080",
-  "s.libLabel": "Accounts",
   "s.importBtn": "Import account files",
   "s.exportAllBtn": "Export all",
   "s.pathLabel": "ZCode executable",

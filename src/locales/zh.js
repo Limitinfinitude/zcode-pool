@@ -16,7 +16,7 @@ export const zh = {
   "prov.short.zai": "z.ai",
 
   "m.status.running": "ZCode 运行中",
-  "m.status.unsaved": "未保存的登录",
+  "m.status.unsaved": "当前登录账号未保存",
   "m.status.safe": "可安全切换",
   "m.status.loggedOut": "未登录",
   "m.toastSaved": "已保存当前登录为「{name}」",
@@ -170,6 +170,7 @@ export const zh = {
   "btn.quota": "查额度",
   "btn.rename": "重命名",
   "btn.export": "导出",
+  "btn.import": "导入",
   "btn.delete": "删除",
   "btn.renameMeta": "回车保存 · Esc 取消",
 
@@ -212,7 +213,6 @@ export const zh = {
   "s.proxyToggle": "授权登录走代理",
   "s.proxyToggleDesc": "z.ai 登录页按出口 IP 分流：国内 IP 只显示手机号登录，邮箱登录需海外出口。开启后仅「添加账号」弹出的登录窗口走此代理；额度查询 / 领取 / 切换等流量不变",
   "s.proxyPh": "http://127.0.0.1:7890 或 socks5://127.0.0.1:1080",
-  "s.libLabel": "账号库",
   "s.importBtn": "导入账号文件",
   "s.exportAllBtn": "导出全部",
   "s.pathLabel": "ZCode 程序路径",
