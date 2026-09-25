@@ -562,33 +562,33 @@ body {
 .modal { animation: pop-in .18s cubic-bezier(.2, .9, .3, 1.15); }
 @keyframes pop-in { from { opacity: 0; transform: scale(.965) translateY(8px); } to { opacity: 1; transform: none; } }
 
-/* 仪表盘式汇总（账号数 / 剩余 Tokens / 分模型卡片） */
-.dash { margin: 0 20px 14px; display: flex; flex-direction: column; gap: 12px; }
-.dash-kpis { display: flex; gap: 12px; flex-wrap: wrap; }
-.kpi, .mcard {
-  position: relative; overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .08); border-radius: var(--r-lg); background: var(--card);
-  box-shadow: 0 12px 34px -22px rgba(0, 0, 0, .95);
+/* 仪表盘：汽车刻度盘式 */
+.dash { margin: 0 20px 14px; display: flex; flex-direction: column; gap: 16px; }
+.dash-hero {
+  display: flex; align-items: center; gap: 18px; padding: 14px 20px;
+  border: 1px solid rgba(255, 255, 255, .08); border-radius: var(--r-lg);
+  background: linear-gradient(135deg, rgba(26, 36, 54, .92), rgba(17, 19, 24, .92));
+  box-shadow: 0 18px 44px -28px rgba(0, 0, 0, .95);
 }
-.kpi::before, .mcard::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, .065), transparent 46%);
-}
-.kpi { flex: 1; min-width: 116px; padding: 14px 16px; }
-.kpi b {
-  display: block; font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05;
-  background: linear-gradient(135deg, #eaf2ff, #8fb8ff); -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.kpi.hl b { font-size: 32px; background: linear-gradient(135deg, #d3e8ff, #4f9dff); -webkit-background-clip: text; background-clip: text; }
-.kpi > span { display: block; font-size: 11.5px; color: var(--label-3); margin-top: 4px; }
-.dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
-.mcard { padding: 14px; }
-.mcard-h { display: flex; align-items: baseline; gap: 8px; }
-.mcard-name { flex: 1; min-width: 0; font-size: 13px; color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mcard-pct { flex: none; font-size: 11.5px; font-weight: 600; color: var(--label-3); }
-.mcard-num { font-size: 25px; font-weight: 700; letter-spacing: -.02em; margin-top: 7px; color: var(--label); }
-.mcard-sub { font-size: 11.5px; color: var(--label-3); margin: 3px 0 10px; }
-.sm-empty { font-size: 12.5px; color: var(--label-3); grid-column: 1 / -1; }
+.dash-hero-txt { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.dash-hero-lb { font-size: 13px; color: var(--label-2); }
+.dash-hero-meta { font-size: 11.5px; color: var(--label-3); }
+
+.gauges { display: flex; gap: 16px; flex-wrap: wrap; }
+.mgauge { display: flex; flex-direction: column; align-items: center; gap: 7px; width: 108px; }
+.mgauge-name { font-size: 12px; color: var(--label-3); max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 刻度盘本体 */
+.gauge { width: 98px; height: 98px; flex: none; }
+.gauge.big { width: 116px; height: 116px; }
+.gauge .g-track { stroke: rgba(255, 255, 255, .1); }
+.gauge .g-fill { stroke: var(--blue); transition: stroke-dasharray .55s cubic-bezier(.2, .8, .2, 1); }
+.gauge.warn .g-fill { stroke: var(--orange); }
+.gauge.danger .g-fill { stroke: var(--red); }
+.gauge .g-num { font-family: var(--mono); font-size: 20px; font-weight: 700; fill: var(--label); }
+.gauge.big .g-num { font-size: 21px; }
+.gauge .g-sub { font-family: var(--mono); font-size: 9px; fill: var(--label-3); }
+.sm-empty { font-size: 12.5px; color: var(--label-3); }
 
 /* 设备码授权：大号等宽码 */
 .reauth-code {

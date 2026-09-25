@@ -95,6 +95,9 @@ export const en = {
   "st.noQuota": "Loading quota…",
   "st.totalTokens": "Tokens left",
   "st.noTotal": "no total data",
+  "st.refresh": "Refresh",
+  "st.refreshing": "Refreshing quota…",
+  "st.meta": "{a} accounts · {m} models · {r} with quota",
 
   "mb.title": "MAILBOX · Pool",
   "mb.import": "Import txt",

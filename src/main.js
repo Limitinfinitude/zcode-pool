@@ -162,6 +162,16 @@ function autoPillTitle(s) {
 const actions = {
   async refresh() { await refresh(); render(); },
 
+  /** 手动刷新全部账号额度。 */
+  async refreshQuota() {
+    if (!state?.accounts?.length) return;
+    toast(t("st.refreshing"), "ok");
+    for (const a of state.accounts) {
+      acctQuota[a.id] = { data: acctQuota[a.id]?.data, busy: false };
+      loadAcctQuota(a.id);
+    }
+  },
+
   async setTab(name) {
     if (tab === name) return;
     tab = name;
@@ -986,36 +996,51 @@ function quotaSummary() {
   return { models, ready };
 }
 
-/** 账号库顶部：仪表盘式汇总（总账号 + 剩余 Tokens + 分模型卡片）。 */
+/** 一个圆形刻度盘（270° 弧，像汽车仪表）。pct = 剩余百分比 0..100。 */
+function gaugeSvg(pct, big, sub, cls) {
+  const C = 251.327; // 2πr, r=40
+  const ARC = 188.495; // 270°
+  const keep = (ARC * Math.max(0, Math.min(100, pct))) / 100;
+  return `<svg viewBox="0 0 100 100" class="gauge${cls ? " " + cls : ""}">
+    <circle class="g-track" cx="50" cy="50" r="40" fill="none" stroke-width="9" stroke-linecap="round"
+      stroke-dasharray="${ARC} ${C}" transform="rotate(135 50 50)"/>
+    <circle class="g-fill" cx="50" cy="50" r="40" fill="none" stroke-width="9" stroke-linecap="round"
+      stroke-dasharray="${keep} ${C}" transform="rotate(135 50 50)"/>
+    <text class="g-num" x="50" y="49" text-anchor="middle">${esc(big)}</text>
+    ${sub ? `<text class="g-sub" x="50" y="66" text-anchor="middle">${esc(sub)}</text>` : ""}
+  </svg>`;
+}
+
+/** 账号库顶部：仪表盘（总剩余 Tokens + 分模型刻度盘）+ 手动刷新。 */
 function statsHtml(s) {
   const { models, ready } = quotaSummary();
   const sumRem = models.reduce((a, m) => a + (m.remaining || 0), 0);
   const sumTot = models.reduce((a, m) => a + (m.total || 0), 0);
-  const cards = models
+  const sumPct = sumTot ? (sumRem / sumTot) * 100 : 100;
+  const gauges = models
     .slice(0, 8)
     .map((m) => {
-      const usedPct = m.total ? (m.remaining / m.total) * 100 : m.n ? 100 - m.pctSum / m.n : null;
-      const pct = usedPct == null ? null : Math.max(0, Math.min(100, 100 - usedPct));
-      return `<div class="mcard">
-        <div class="mcard-h">
-          <span class="mcard-name" title="${esc(m.name)}">${esc(m.name)}</span>
-          ${usedPct != null ? `<span class="mcard-pct">${Math.round(usedPct)}%</span>` : ""}
-        </div>
-        <div class="mcard-num">${m.total ? fmtTokens(m.remaining) : "—"}</div>
-        <div class="mcard-sub">${m.total ? `${esc(t("q.remainingShort"))} / ${fmtTokens(m.total)}` : esc(t("st.noTotal"))}</div>
-        ${quotaBarHtml(pct)}
+      const rem = m.total ? (m.remaining / m.total) * 100 : m.n ? 100 - m.pctSum / m.n : 100;
+      const cls = rem <= 10 ? " danger" : rem <= 30 ? " warn" : "";
+      const sub = m.total ? `${fmtTokens(m.total)}` : t("st.noTotal");
+      return `<div class="mgauge">
+        ${gaugeSvg(rem, m.total ? fmtTokens(m.remaining) : "—", sub, cls)}
+        <span class="mgauge-name" title="${esc(m.name)}">${esc(m.name)}</span>
       </div>`;
     })
     .join("");
   return `
   <div class="dash">
-    <div class="dash-kpis">
-      <div class="kpi hl"><b>${sumTot ? fmtTokens(sumRem) : "—"}</b><span>${t("st.totalTokens")}</span></div>
-      <div class="kpi"><b>${s.accounts.length}</b><span>${t("st.accounts")}</span></div>
-      <div class="kpi"><b>${models.length}</b><span>${t("st.models")}</span></div>
-      <div class="kpi"><b>${ready}</b><span>${t("st.ready")}</span></div>
+    <div class="dash-hero">
+      ${gaugeSvg(sumPct, sumTot ? fmtTokens(sumRem) : "—", "", " big")}
+      <div class="dash-hero-txt">
+        <div class="dash-hero-lb">${t("st.totalTokens")}</div>
+        <div class="dash-hero-meta">${t("st.meta", { a: s.accounts.length, m: models.length, r: ready })}</div>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn" click="actions.refreshQuota()">${ic("refresh", 14)} ${t("st.refresh")}</button>
     </div>
-    <div class="dash-grid">${cards || `<div class="sm-empty">${t("st.noQuota")}</div>`}</div>
+    <div class="gauges">${gauges || `<div class="sm-empty">${t("st.noQuota")}</div>`}</div>
   </div>`;
 }
 
@@ -1290,7 +1315,7 @@ listen("state-changed", () => {
   refresh().then(() => { if (!uiLocked() && !isEditing()) render(); }).catch(() => {});
 });
 
-const SWEEP_PERIOD = 5 * 60 * 1000;
+const SWEEP_PERIOD = 10 * 60 * 1000;
 const SWEEP_JITTER = 0.2;
 const TICK_MS = 8000;
 let quotaDue = {};
