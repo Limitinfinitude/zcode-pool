@@ -1,0 +1,45 @@
+[package]
+name = "zcode-pool"
+version = "0.1.0"
+description = "ZCode 账号池：邮箱库 / 批量注册验证 / 账号切换"
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "zcode_pool_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+aes-gcm = "0.10"
+base64 = "0.22"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+ureq = { version = "2", features = ["json"] }
+sys-locale = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_System_Console",
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_Security",
+] }
+
+[target.'cfg(not(windows))'.dependencies]
+# X-Client-Timezone 的 IANA 名（Node Intl 同源）
+iana-time-zone = "0.1"
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
