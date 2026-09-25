@@ -1,35 +1,55 @@
-# Z·POOL (zcode-pool)
+# Z·POOL
+
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
+[![Release](https://img.shields.io/github/v/release/Limitinfinitude/zcode-pool?label=release)](../../releases)
 
 [简体中文](README.md) ｜ **English**
 
-Z·POOL is a **Tauri 2** desktop app for managing ZCode / Z.ai accounts, an Outlook mailbox pool, and account quotas in one place.
+Z·POOL is a Windows desktop application built with Tauri 2. It manages ZCode / Z.ai account identities, an Outlook mailbox pool, and per-account quotas and plans in one place.
 
-![Z·POOL mailbox pool](assets/mailbox.png)
+## Screenshots
 
-![Z·POOL account library · quota dashboard](assets/accounts.png)
+![Mailbox pool](assets/mailbox.png)
 
-## What it does
+![Account library and quotas](assets/accounts.png)
 
-- **Account library**: keep multiple login identities and switch between them with a cold switch that preserves the current login first.
-- **Quota dashboard**: aggregate remaining quota by model across accounts, with plan, window, reset time, and expiry details.
-- **Mailbox pool**: import `email----password----client_id----refresh_token` records and read Outlook / Hotmail verification mail.
-- **Batch verification**: run signup, mailbox verification, and authorization serially; slider CAPTCHA still requires a manual step.
-- **OAuth sign-in**: add accounts through BigModel or z.ai without changing the current login.
-- **Claiming**: inspect available plans and claim them manually or through the scheduled auto-claim flow.
+## Features
 
-## How quota totals are calculated
+### Account library
 
-Totals are grouped by **model name and quota item**:
+- Store multiple login identities and switch between them in one click. The current login is archived before every switch, so no account is ever lost.
+- Supports both BigModel and z.ai sign-in. Adding an account never disturbs the login you are using.
+- Can relaunch ZCode automatically after a switch.
 
-- When the backend exposes both `plans[].items` and top-level `items`, they are two views of the same data. The dashboard uses the plan items once.
-- If no plan items exist, it falls back to top-level `items`.
-- This prevents the same account quota from being counted twice.
+### Quotas and plans
 
-The account rows still show the original plan details so you can trace each number.
+- Aggregates remaining quota across all accounts, grouped by model, with plan, quota window, reset time and expiry.
+- Checks which plans are claimable, and claims them manually or on a fixed schedule.
 
-## Install and build
+### Mailbox pool
 
-Requires **Node 18+**, stable Rust, and the Windows GNU toolchain `stable-x86_64-pc-windows-gnu`.
+- Imports `email----password----client_id----refresh_token` files and reads Outlook / Hotmail verification mail.
+- Runs signup, mail pickup, verification and authorization in batches. The slider CAPTCHA is completed manually.
+- Supports re-authorization, credential updates and status filtering.
+
+## Installation
+
+### Prebuilt binaries
+
+Download the package for your platform from the [Releases](../../releases) page:
+
+| Platform | File |
+| --- | --- |
+| Windows | `*_x64-setup.exe` |
+| macOS | `*_universal.dmg` |
+| Linux | `*.deb` / `*.AppImage` |
+
+The binaries are not code-signed, so the system may warn about an unknown publisher on first launch.
+
+### Building from source
+
+Requirements: Node.js 18 or newer, stable Rust, and — on Windows — the GNU toolchain `stable-x86_64-pc-windows-gnu`.
 
 ```powershell
 npm install
@@ -38,38 +58,39 @@ Set-Location src-tauri
 cargo +stable-x86_64-pc-windows-gnu build --release --features tauri/custom-protocol
 ```
 
-The Windows executable is written to:
-
-```text
-src-tauri/target/release/zcode-pool.exe
-```
-
-To collect the portable executable and installer:
+The binary is written to `src-tauri/target/release/zcode-pool.exe`. To also produce the portable build and the installer:
 
 ```powershell
 npm run dist
 ```
 
+After editing i18n strings, `npm run check:i18n` verifies that the Chinese and English tables stay in sync.
+
+## Usage
+
+1. **Add an account** — in the account library, click *Add* and sign in through the window that opens. The account is stored automatically and your current login is untouched.
+2. **Switch accounts** — click *Switch* on a row. ZCode is closed and restarted so the new login takes effect.
+3. **Verify mailboxes** — in the mailbox pool, click *Import txt*, tick the mailboxes you want, then click *Auto-verify*. Each account needs one manual slider check.
+4. **Claim plans** — click *Refresh* to see what each account can claim, then *Claim* manually or enable *Auto claim* to check on a fixed interval.
+
 ## Data and security
 
-- Account data, mailbox records, and settings live under `~/.zcode-pool/` by default.
-- `mail.json` contains mailbox passwords and refresh tokens. Do not commit it to Git or upload it to a public location.
-- Logs:
-  - Windows: `%LOCALAPPDATA%\\com.zpool.app\\logs\\oauth.log`
-  - macOS: `~/Library/Logs/com.zpool.app/`
+- Accounts, mailboxes and settings live under `~/.zcode-pool/`. Everything stays local.
+- `mail.json` stores mailbox passwords and refresh tokens in plain text. Do not commit it or share it.
+- Exported accounts contain only z.ai / BigModel credentials, provider config and the device identity. Third-party provider keys, SSH passwords and relay credentials are stripped.
+- Logs are written to `%LOCALAPPDATA%\com.zpool.app\logs\oauth.log`.
 
-## Development checks
+## Disclaimer
 
-```powershell
-npm run check:i18n
-npm run build
-```
+This project is shared for technical learning only. Please comply with the relevant terms of service and laws, and use it at your own risk.
 
-## Credits and license
+## Credits
 
-Parts of the project reference these MIT projects:
+Parts of the code and design reference these MIT projects:
 
 - [zcode-switch](https://github.com/pjpv/zcode-switch)
 - [OutlookEmail](https://github.com/assast/outlookEmail)
 
-MIT — see [LICENSE](LICENSE).
+## License
+
+[MIT](LICENSE)
