@@ -61,8 +61,8 @@ jobs:
             Z·POOL v0.1.0 — 邮箱池 / Z.ai 批量注册验证 / ZCode 账号切换。
 
             下载对应平台：
-            - Windows: `*_x64-setup.exe`（安装包）/ `*.exe`（便携版）
-            - macOS: `*.dmg`（universal，Intel + Apple Silicon）
+            - Windows: `*_x64-setup.exe`（安装包）
+            - macOS: `*_universal.dmg`（Intel + Apple Silicon）
             - Linux: `*.deb` / `*.AppImage`
 
             未签名，首次运行系统可能提示「未知开发者」。
