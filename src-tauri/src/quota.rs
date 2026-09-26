@@ -20,7 +20,12 @@ fn no_window(prog: &str) -> std::process::Command {
 pub const QUOTA_LIMIT_URL: &str = "https://open.bigmodel.cn/api/monitor/usage/quota/limit";
 pub const SUBSCRIPTION_URL: &str = "https://open.bigmodel.cn/api/biz/subscription/list";
 pub const BILLING_BALANCE_URL: &str = "https://zcode.z.ai/api/v1/zcode-plan/billing/balance";
-pub const CLIENT_APP_VERSION: &str = "3.11.2";
+/// 冒充客户端时用的版本号。
+///
+/// 只在两种情况下用到：① 本机探测不到 ZCode（没装 / 装在别处）；② 注册流程的表头。
+/// 这两种都得是**当前客户端的版本**，所以跟着真客户端走 —— 用老版本会被服务端区别对待
+/// （额度查回来是空，界面显示 Free）。
+pub const CLIENT_APP_VERSION: &str = "3.14.3";
 
 pub(crate) fn client_platform() -> String {
     let os = crate::zcrypto::node_platform_for(std::env::consts::OS);
@@ -110,10 +115,19 @@ pub(crate) fn client_timezone() -> String {
     iana_time_zone::get_timezone().unwrap_or_else(|_| "unknown".to_string())
 }
 
+/// 本机装的 ZCode 客户端版本。
+///
+/// 用途是冒充客户端发请求，所以这个值必须**真的是 ZCode 的版本**。两个坑：
+///
+/// 1. 本工具自己的卸载项（`zcode-pool`）名字里也有 "zcode"，一旦被当成客户端，
+///    就会把 "0.1.0" 发出去，服务端不认，额度查回来是空（界面显示 Free）。
+/// 2. 注册表各个 hive 的枚举顺序不保证，**不能「扫到第一个就返回」** —— 必须把
+///    所有候选都收齐，取版本号最高的那个（真客户端的 3.x 永远高于我们自己的 0.x）。
 pub(crate) fn zcode_app_version() -> String {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CACHE
         .get_or_init(|| {
+            let mut best: Option<String> = None;
             for hive in [
                 r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
                 r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -127,9 +141,7 @@ pub(crate) fn zcode_app_version() -> String {
                 for line in txt.lines() {
                     let l = line.trim();
                     if l.starts_with("HKEY_") {
-                        if is_zcode_display_name(&name) && !ver.is_empty() {
-                            return normalize_version(&ver);
-                        }
+                        consider_zcode(&mut best, &name, &ver);
                         name.clear();
                         ver.clear();
                         continue;
@@ -140,18 +152,33 @@ pub(crate) fn zcode_app_version() -> String {
                         ver = rest.trim_start().trim_start_matches("REG_SZ").trim().to_string();
                     }
                 }
-                if is_zcode_display_name(&name) && !ver.is_empty() {
-                    return normalize_version(&ver);
-                }
+                consider_zcode(&mut best, &name, &ver);
             }
-            CLIENT_APP_VERSION.to_string()
+            best.unwrap_or_else(|| CLIENT_APP_VERSION.to_string())
         })
         .clone()
 }
 
+/// 记下一个候选的客户端版本：只收 ZCode 本体，且取版本号最高的。
+fn consider_zcode(best: &mut Option<String>, name: &str, ver: &str) {
+    if !is_zcode_display_name(name) || ver.trim().is_empty() {
+        return;
+    }
+    let v = normalize_version(ver);
+    if best.as_deref().map_or(true, |b| version_gt(&v, b)) {
+        *best = Some(v);
+    }
+}
+
+fn version_gt(a: &str, b: &str) -> bool {
+    let nums = |s: &str| -> Vec<u64> { s.split('.').map(|x| x.trim().parse().unwrap_or(0)).collect() };
+    nums(a) > nums(b)
+}
+
 fn is_zcode_display_name(name: &str) -> bool {
     let l = name.to_lowercase();
-    l.contains("zcode") && !l.contains("switch")
+    // "pool" 是本工具自己，"switch" 是它派生出来的那个项目 —— 都不是 ZCode 客户端。
+    l.contains("zcode") && !l.contains("switch") && !l.contains("pool")
 }
 
 fn normalize_version(v: &str) -> String {
