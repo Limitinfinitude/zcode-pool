@@ -192,13 +192,13 @@ mod tests {
 
     #[test]
     fn parses_four_fields() {
-        let raw = "HoflerOdette15@outlook.com----vzzjlhi7265----9e5f94bc-e8a4----M.C534_token";
+        let raw = "someone@example.com----pw123----00000000-0000----T.SAMPLE_token";
         let v = parse_lines(raw);
         assert_eq!(v.len(), 1);
-        assert_eq!(v[0].0, "HoflerOdette15@outlook.com");
-        assert_eq!(v[0].1, "vzzjlhi7265");
-        assert_eq!(v[0].2, "9e5f94bc-e8a4");
-        assert_eq!(v[0].3, "M.C534_token");
+        assert_eq!(v[0].0, "someone@example.com");
+        assert_eq!(v[0].1, "pw123");
+        assert_eq!(v[0].2, "00000000-0000");
+        assert_eq!(v[0].3, "T.SAMPLE_token");
     }
 
     #[test]
