@@ -1,6 +1,6 @@
 [package]
 name = "zcode-pool"
-version = "0.1.0"
+version = "0.1.1"
 description = "ZCode 账号池：邮箱库 / 批量注册验证 / 账号切换"
 license = "MIT"
 edition = "2021"

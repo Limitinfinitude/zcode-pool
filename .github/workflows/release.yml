@@ -55,10 +55,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.1.0' }}
-          releaseName: 'Z·POOL v0.1.0'
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.1.1' }}
+          releaseName: 'Z·POOL v0.1.1'
           releaseBody: |
-            Z·POOL v0.1.0 — 邮箱池 / Z.ai 批量注册验证 / ZCode 账号切换。
+            Z·POOL — 邮箱池 / Z.ai 批量注册验证 / ZCode 账号切换。
 
             下载对应平台：
             - Windows: `*_x64-setup.exe`（安装包）
