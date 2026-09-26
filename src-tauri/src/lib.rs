@@ -216,7 +216,7 @@ async fn get_account_quota(id: String) -> Result<quota::QuotaOverview, String> {
 #[tauri::command]
 async fn claim_preview(id: String) -> Result<Vec<claim::ClaimPlan>, String> {
     let paths = Paths::detect();
-    let mid = store::ensure_virtual_device_mid(&paths, &id)?;
+    let mid = store::account_mid(&paths, &id)?;
     let acc = load_account(&paths, &id)?;
     claim::preview_plans(&paths.home, &acc.credentials, acc.config.as_ref(), Some(mid))
 }
@@ -232,7 +232,7 @@ struct ClaimRefreshResult {
 #[tauri::command]
 async fn claim_refresh(id: String) -> Result<ClaimRefreshResult, String> {
     let paths = Paths::detect();
-    let mid = store::ensure_virtual_device_mid(&paths, &id)?;
+    let mid = store::account_mid(&paths, &id)?;
     let acc = load_account(&paths, &id)?;
     let (activated, activation_error) =
         match claim::telemetry_user_id(&paths.home, &acc.credentials) {
@@ -254,7 +254,7 @@ async fn claim_start(
     auto: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let paths = Paths::detect();
-    let mid = store::ensure_virtual_device_mid(&paths, &id)?;
+    let mid = store::account_mid(&paths, &id)?;
     let acc = load_account(&paths, &id)?;
     let plans = claim::preview_plans(&paths.home, &acc.credentials, acc.config.as_ref(), Some(mid.clone()))?;
     let plan = plans
@@ -407,6 +407,13 @@ async fn oauth_begin(
     let flow = uuid::Uuid::new_v4().to_string();
     flowlog::log(&flow, "begin", &format!("provider={provider} auto={auto} proxy={}", if proxy_url.is_some() { "on" } else { "off" }));
     let mid = uuid::Uuid::new_v4().to_string();
+    // 登录窗里的客户端发请求时，设备身份取自 telemetry 的 deviceMid。必须先把这次
+    // 流程的 mid 写进去，否则客户端会带着**上一个号**的设备身份去注册：服务端把新号
+    // 登记在那个旧身份下，而账号入库时存的是这次的 mid —— 两边对不上，之后查额度
+    // 就是空 plans（界面显示 Free）。
+    if let Err(e) = store::write_live_device_mid(&Paths::detect(), &mid) {
+        flowlog::log(&flow, "mid-write-fail", &e);
+    }
     let (p_init, m_init) = (provider.clone(), mid.clone());
     let init = match tauri::async_runtime::spawn_blocking(move || oauth::init_flow(&p_init, &m_init))
         .await

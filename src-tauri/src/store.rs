@@ -936,17 +936,24 @@ pub fn live_quota(paths: &Paths) -> Result<quota::QuotaOverview, String> {
     quota::quota_for_live(&paths.home, &creds, read_live_config(paths).as_ref())
 }
 
+/// 读账号自己的设备标识 —— **只读，不生成**。
+///
+/// 查询额度、查领取资格这类「拿这个身份去问服务端」的场合必须走这里：账号没有
+/// mid 就直接报错让人去处理。绝不能退回全局 mid（那是别的号的身份），也不能
+/// 现编一个（服务端从没见过这个设备，问回来必然是空 plans，看着像「没套餐」）。
+pub fn account_mid(paths: &Paths, id: &str) -> Result<String, String> {
+    let acc = load_account(paths, id)?;
+    acc.virtual_device_mid
+        .filter(|m| !m.trim().is_empty())
+        .ok_or_else(|| trf("err.mid.missing", &[("name", &acc.name)]))
+}
+
 pub fn account_quota(paths: &Paths, id: &str) -> Result<quota::QuotaOverview, String> {
     let acc = load_account(paths, id)?;
     // 必须带**该账号自己的**设备标识：服务端的 balance 是按「账号 + 设备」返回的，
     // 用别的号的 mid 去问会拿到空 plans（看着像没套餐，其实是问错了身份）。
-    let mid = ensure_virtual_device_mid(paths, id).ok();
-    quota::quota_for_snapshot_mid(
-        &paths.home,
-        &acc.credentials,
-        acc.config.as_ref(),
-        mid.as_deref(),
-    )
+    let mid = account_mid(paths, id)?;
+    quota::quota_for_snapshot_mid(&paths.home, &acc.credentials, acc.config.as_ref(), Some(&mid))
 }
 
 fn ensure_virtual_device_mid_locked(paths: &Paths, id: &str) -> Result<String, String> {
@@ -971,17 +978,6 @@ fn ensure_virtual_device_mid_locked(paths: &Paths, id: &str) -> Result<String, S
     Ok(m)
 }
 
-pub fn ensure_virtual_device_mid(paths: &Paths, id: &str) -> Result<String, String> {
-    if let Ok(acc) = load_account(paths, id) {
-        if let Some(m) = acc.virtual_device_mid.clone() {
-            if !m.trim().is_empty() {
-                return Ok(m);
-            }
-        }
-    }
-    let _guard = crate::store_guard();
-    ensure_virtual_device_mid_locked(paths, id)
-}
 
 pub fn write_live_device_mid(paths: &Paths, mid: &str) -> Result<(), String> {
     let mut v: Value = fs::read_to_string(paths.live_telemetry())
@@ -1002,21 +998,16 @@ fn adopt_virtual_device_mid(paths: &Paths, acc: &mut Account) -> Result<(), Stri
     if acc.virtual_device_mid.as_deref().map_or(false, |m| !m.trim().is_empty()) {
         return Ok(());
     }
-    let live_mid: Option<String> = fs::read_to_string(paths.live_telemetry())
+    // 采纳当前 ZCode 真实在用的设备标识 —— 服务端就是按它给这个号下发额度的。
+    // 即使库里别的账号已经占着同一个 mid 也要照用：真实客户端本来就在一台设备上
+    // 登多个号，服务端并不要求 mid 唯一。以前这里是「撞号就换个随机值」，结果账号
+    // 存的身份服务端从没见过，查额度必然是空的。
+    let live_mid = fs::read_to_string(paths.live_telemetry())
         .ok()
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .and_then(|v| v.get("deviceMid").and_then(|m| m.as_str()).map(String::from))
         .filter(|m| !m.trim().is_empty());
-    let taken = |m: &str| {
-        list_accounts(paths)
-            .map(|accs| accs.iter().any(|a| a.virtual_device_mid.as_deref() == Some(m)))
-            .unwrap_or(false)
-    };
-    let mid = match live_mid {
-        Some(m) if !taken(&m) => m,
-        _ => Uuid::new_v4().to_string(),
-    };
-    acc.virtual_device_mid = Some(mid);
+    acc.virtual_device_mid = Some(live_mid.unwrap_or_else(|| Uuid::new_v4().to_string()));
     acc.updated_at = now_ts();
     save_account(paths, acc)
 }

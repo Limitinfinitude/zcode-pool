@@ -61,6 +61,7 @@ pub fn init_from_settings(s: &crate::store::Settings) {
 
 const ZH: &[(&str, &str)] = &[
     ("err.write", "写入失败：{e}"),
+    ("err.mid.missing", "「{name}」没有设备标识，查不了额度。请在本机用它登录一次 ZCode，再点「保存登录」重新入库。"),
     ("err.write_file", "写入失败 {path}: {e}"),
     ("err.rename_fail", "落盘失败 {path}: {e}"),
     ("err.read", "无法读取 {path}: {e}"),
@@ -222,6 +223,7 @@ const ZH: &[(&str, &str)] = &[
 
 const EN: &[(&str, &str)] = &[
     ("err.write", "Write failed: {e}"),
+    ("err.mid.missing", "\"{name}\" has no device identity, so its quota can't be queried. Sign in to ZCode with it on this machine, then use \"Save login\" again."),
     ("err.write_file", "Write failed {path}: {e}"),
     ("err.rename_fail", "Persist failed {path}: {e}"),
     ("err.read", "Cannot read {path}: {e}"),
