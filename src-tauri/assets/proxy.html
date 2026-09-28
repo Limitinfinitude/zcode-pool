@@ -226,6 +226,11 @@ let route = (location.hash || "").slice(1);
 // /proxy/admin 也指向这个页面：没有 hash 时按路径落到「管理」
 if (!route || !ROUTES[route]) route = /\/admin\/?$/.test(location.pathname) ? "admin" : "dash";
 let S = null, LOGS = [], fails = 0, tickN = 0, showAll = false;
+// 用户正在操作表单（下拉/输入框）时，别让轮询重画把控件换掉 —— 否则下拉会「选不中」
+function isEditing() {
+  const el = document.activeElement;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
+}
 // 用量页：明细 + 聚合 + 服务端筛选
 let USAGE = null;
 // 仪表盘卡片要的聚合（/proxy/usage/stats）
@@ -1476,7 +1481,10 @@ async function tick() {
     $("ltext").textContent = S.generating ? "正在生成" : S.external ? "空闲" : "已停止";
     $("live").className = "pill" + (S.generating ? " live" : "");
     if (tickN === 1) rep("pre-render", "ok");
-    render();
+    // ⚠ 正在操作表单时**别重画**。render() 重建 innerHTML，会把 <select> 整个换掉 ——
+    // 用户刚点开下拉、轮询一到，原生下拉就被销毁，表现就是「选不中邮箱」。
+    if (isEditing()) { if (tickN === 1) rep("render-skipped", "正在操作表单"); }
+    else render();
     if (tickN === 1) rep("post-render", "ok");
   } catch (e) {
     rep("tick-throw", (e && (e.stack || e.message)) || e);
