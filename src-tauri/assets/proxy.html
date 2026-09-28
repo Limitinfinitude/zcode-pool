@@ -1576,6 +1576,11 @@ function renderClaimModal() {
     : "";
   const cls = $("cmclose");
   if (cls) cls.onclick = () => { ACC_DETAIL = null; renderClaimModal(); };
+  for (const b of box.querySelectorAll("[data-claim-pid]")) b.onclick = () => {
+    const row = b.closest(".kv");
+    const planName = row ? (row.querySelector(".k") || {}).textContent : "";
+    claimSubmit(b.dataset.claimId, b.dataset.claimPid, planName);
+  };
 }
 function claimPanelHtml() {
   const d = ACC_DETAIL;
@@ -1597,7 +1602,8 @@ function claimPanelHtml() {
         '<span class="v" style="color:var(--dim2);font-size:11.5px;flex:1">' + esc((p.grants || []).join(" / ") || p.description || "") + "</span>" +
         '<button class="mini pri" data-claim-id="' + esc(d.id) + '" data-claim-pid="' + esc(p.plan_id) + '"' + (CLAIM.running ? " disabled" : "") + ">" + ICON("gift", 14) + "领取</button>" +
       "</div>").join("") +
-    '<div style="color:var(--dim2);font-size:11.5px;margin-top:10px">点「领取」走无感验证 —— 正常几秒自动完成、不弹窗；若被风控拦，exe 会弹出验证码窗让你滑一下，本条会显示结果。</div>';
+    '<div style="color:var(--dim2);font-size:11.5px;margin-top:10px">点「领取」走无感验证 —— 正常几秒自动完成、不弹窗；若被风控拦，exe 会弹出验证码窗让你滑一下，本条会显示结果。</div>' +
+    '<div style="color:var(--dim2);font-size:11.5px;margin-top:6px">自动领取不在这里 —— 它跑在工具（exe 面板）里，要在那边的「自动领取」开关打开；本页面只能手动领。</div>';
 }
 
 function mailStatus(a) {
@@ -1902,11 +1908,6 @@ function wireAcct() {
   };
   for (const b of document.querySelectorAll("[data-act-quota]")) b.onclick = () => loadQuota(b.dataset.actQuota);
   for (const b of document.querySelectorAll("[data-act-claim]")) b.onclick = () => accDetail("claim", b.dataset.actClaim);
-  for (const b of document.querySelectorAll("[data-claim-pid]")) b.onclick = () => {
-    const row = b.closest(".kv");
-    const planName = row ? (row.querySelector(".k") || {}).textContent : "";
-    claimSubmit(b.dataset.claimId, b.dataset.claimPid, planName);
-  };
   const aq = document.querySelector("[data-acc-all-quota]");
   if (aq) aq.onclick = () => { QAUTO = true; loadAllQuotas(); };
 

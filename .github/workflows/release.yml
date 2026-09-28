@@ -50,10 +50,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.2.0' }}
-          releaseName: 'Z·POOL v0.2.0'
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.2.1' }}
+          releaseName: 'Z·POOL v0.2.1'
           releaseBody: |
             Z·POOL — 邮箱池 / Z.ai 批量注册验证 / ZCode 账号切换 / **带 Web 管理台的 proxy 网关**。
+
+            本版修复
+            - 管理台「可领套餐」弹窗里的**「领取」按钮点了没反应**（按钮生成晚于事件绑定，绑定那一步永远看不到它）。
+            - 弹窗里补一行说明：**自动领取不在这页**，它跑在工具（exe 面板）里，要在那边开开关。
 
             本版重点：**反代 + 管理台**
 
