@@ -14,9 +14,6 @@ pub fn init(base: &Path) {
     }
 }
 
-/// 分页读日志（控制台「日志」页用）。`offset` 从**最新一条往回数**（0 = 最后一行），
-/// 返回 `[offset, offset + limit)` 这一段，内部按时间正序（旧 -> 新）。
-/// 同时返回总行数，前端好算页数。日志最大 256KB，整体读进来再切够用了。
 pub fn tail_page(offset: usize, limit: usize) -> (Vec<String>, usize) {
     let Some(path) = LOG_PATH.get() else {
         return (Vec::new(), 0);

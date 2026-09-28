@@ -11,7 +11,6 @@ export const en = {
   "common.loadFail": "Failed to load: {e}",
   "common.listSep": ", ",
 
-
   "prov.title": "Add account · Choose sign-in method",
   "prov.sub": "Pick a site and sign in manually in the popup (password / phone / QR).<br>The account is saved automatically when done, <b>without touching your current login</b>",
   "prov.bigmodel": "BigModel (Zhipu Open Platform)",
@@ -295,8 +294,6 @@ export const en = {
   "p.howtoHint": "Point a base_url client (Anthropic SDK and friends) at the URL above — it appends /v1/messages itself. If the client wants the full endpoint, use {url}/v1/messages. Either way it resolves.",
   "p.on": "External endpoint enabled",
   "p.off": "External endpoint disabled",
-
-
 
   "reg.title": "Registration assistant",
   "reg.waiting": "Waiting for the login window…",

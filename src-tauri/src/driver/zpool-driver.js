@@ -3,7 +3,6 @@
   if (window.__zpool) return;
   if (window.top !== window.self) return;
 
-
   var CFG = window.__ZPOOL_CFG || {};
   var POLL_MS = 900;
   var FORM_SETTLE_MS = 20000;
@@ -14,8 +13,8 @@
   var SIGNUP_HYDRATE_MS = 4500;
   var SIGNUP_RELOAD_MAX = 2;
   var SIGNUP_ENTRY_RE = /^(注册|免费注册|立即注册|创建账号|Sign up|Create account|Register)$/;
-  var SIGNUP_ENTRY_WAIT_MS = 9000; // 等注册入口渲染出来的上限
-  var SIGNUP_CLICK_WAIT_MS = 6000; // 点完之后等表单渲染的上限
+  var SIGNUP_ENTRY_WAIT_MS = 9000; 
+  var SIGNUP_CLICK_WAIT_MS = 6000; 
 
   var S = {
     mode: CFG.mode || "observe",
@@ -117,7 +116,6 @@
     S.entrySince = Number(saved.entrySince) || 0;
   })();
 
-
   function q(kv) {
     var out = [];
     for (var k in kv) {
@@ -205,7 +203,7 @@
       function retry() {
         tries += 1;
         if (tries > 2) {
-          halted = false; // 恢复回传，把失败原因告诉面板
+          halted = false; 
           fail("navStuck", url);
           return;
         }
@@ -215,7 +213,6 @@
       retryTimer = setTimeout(retry, 4000);
     }, 80);
   }
-
 
   function markReady() {
     if (pageReady) return;
@@ -355,7 +352,6 @@
     })[0] || null;
   }
 
-
   function currentPage() {
     var host = location.hostname;
     var path = location.pathname;
@@ -370,7 +366,6 @@
     if (host.indexOf("zcode.z.ai") >= 0) return "zcode-bridge";
     return "other";
   }
-
 
   function emailInput() {
     var ins = allInputs();
@@ -573,7 +568,7 @@
       }
     } catch (e) {}
     var fs = deepFields();
-    var fC = 0; // 名字像验证码、且值够长的域
+    var fC = 0; 
     for (var j = 0; j < fs.length; j++) {
       var nm = (fs[j].name || "") + (fs[j].id || "") + (fs[j].className || "");
       if (CAPTCHA_FIELD_RE.test(nm) && String(fs[j].value || "").length >= 8) fC++;
@@ -610,7 +605,6 @@
     return true;
   }
 
-
   function fillSignup(values) {
     var nOk = values.name ? fill(nameInput(), values.name) : false;
     var eOk = fill(emailInput(), values.email);
@@ -622,7 +616,7 @@
   }
 
   async function stageSignup() {
-    if (S.submitted) return; // 已提交，剩下的交给 stageAskLink
+    if (S.submitted) return; 
     var st = probeSignup();
     if (!st.hasForm) {
       if (once("noform")) note("noForm");
@@ -635,7 +629,7 @@
       return;
     }
 
-    if (st.sentHint) return; // 交给 stageAskLink
+    if (st.sentHint) return; 
 
     if (!st.emailOk || !st.pwdOk || !st.nameOk) {
       fillSignup(S.answered.signup);
@@ -660,7 +654,7 @@
         log("capSnapshot", snap);
       }
       if (captchaVerified()) {
-        S.submitGateAt = -1; // 过了：立刻提交
+        S.submitGateAt = -1; 
         saveState();
         ok("captchaPassed");
       }
@@ -813,8 +807,7 @@
       await sleep(POLL_MS);
     }
     if (!onAuthorizePage()) return false;
-    // 先勾协议、再点「继续」。按钮在勾选前是 disabled 的，勾上后组件还要一拍才
-    // 变可用；重渲染偶尔还会把勾选吞掉，所以多试几轮，且只点「可用」的按钮。
+
     var saidAgree = false;
     for (var i = 0; i < 20 && Date.now() < deadline; i++) {
       if (checkAgreement() && !saidAgree) {
@@ -832,8 +825,7 @@
   }
 
   async function stageAssist() {
-    // 登录协助：手机号表单在两项都填好后自动点「登录 / 注册」，
-    // 落到授权页时自动勾协议 + 点「继续」。
+
     if (onAuthorizePage()) {
       clearNote();
       phase("confirm-authorize");
@@ -849,7 +841,7 @@
     note("assistPhone");
     if (st.phoneOk && st.codeOk) {
       if (st.needAgree) checkAgreement();
-      // 只有验证码变过才重提：填错时反复原样提交最容易招风控
+
       if (st.btnOk && st.code !== S.lastCode && Date.now() - S.lastSubmitAt > 4500) {
         S.lastSubmitAt = Date.now();
         S.lastCode = st.code;
@@ -861,11 +853,9 @@
   }
 
   async function tick() {
-    // 页面还没加载完就别做事：这时候 DOM 还没成形，任何判断都是错的，
-    // 而且还会平白无故把页面导走。
+
     if (!pageReady || S.stopped) return;
 
-    // 每个文档只报一次自检，黑屏 / 空白页这类问题靠它定位
     if (!S.diagSent) {
       S.diagSent = true;
       var bl = -1;
@@ -885,7 +875,7 @@
 
     if (page !== S.page) {
       S.page = page;
-      // 换页了：等注册入口的计时、点完等表单的计时都要重来
+
       S.entrySince = 0;
       S.signupClickAt = 0;
       saveState();
@@ -893,51 +883,33 @@
       send({ kind: "page", page: page, url: location.href });
     }
 
-    // zcode.z.ai 那个中转页会自己跳到 zcode://oauth/callback，
-    // 驱动在这里必须完全闭嘴，别去打扰它。
     if (page === "zcode-bridge") {
       S.stopped = true;
       clearNote();
       return;
     }
 
-    // 回到授权页之后，注册流程就此打住：只剩最后一件事 —— 勾协议 + 点「继续」。
-    // 这一步必须单独走并立刻 return：不能再落回下面的注册分支，否则 S.submitted
-    // 会把状态又推去「取激活链接」，卡成死循环（这就是当初加 backDone 的原因）。
     if (S.backDone) {
       if (S.mode !== "observe" && onAuthorizePage()) await stageAssist();
       return;
     }
 
-    // 1) 激活链接已到手：优先打开
     if (S.answered.link) {
       stageOpenLink();
       return;
     }
 
-    // 2) 激活链接已打开：走「完成注册」这一步
     if (S.linkOpened) {
       await stageFinish();
       return;
     }
 
-    // 3) BigModel 没有邮箱注册入口，别把它往死路上带
     if (S.auto && page === "bigmodel-login") {
       phase("unsupported");
       note("bigmodelNoEmail");
       S.mode = "login";
     }
 
-    // 4) 提交结果优先判 —— 必须放在表单判断**之前**。
-    //    提交成功后页面会切到「验证邮件已发送」，表单随之消失；
-    //    如果先要求「找到邮箱框+密码框」，成功提示这条分支永远走不到，
-    //    就会掉进下面的兜底里又跳回注册页、又让人填一遍（实测踩到）。
-    // 从这里往下都是**注册自动化**，只允许在 register 模式下跑。
-    //   批量验证 = register；手动「添加」= observe；登录协助 = login。
-    // 以前这里会把「看起来像注册表单」的页面直接接管，还顺手把模式改成 register ——
-    // 而**登录页也满足 looksSignup**（同样有邮箱+密码，同样有那个「点击开始验证」按钮），
-    // 结果在登录页点一下就被人推去注册、弹出填表框和粘贴链接框，手动加一个已经注册
-    // 好的号根本做不成。手动流程要的是「什么都不做」，所以这里只认模式、不再自作主张。
     var probe = probeSignup();
     if (S.auto && (S.submitted || probe.sentHint)) {
       if (probe.sentHint && !S.submitted) {
@@ -949,12 +921,6 @@
       return;
     }
 
-    // 5) 注册表单：以 DOM 为准，不以 URL 为准。
-    //    SPA 完全可能把内容换成注册表单而地址还停在 /auth，
-    //    只认 URL 会出现「明明在注册页却被当成登录页导走」。
-    // 别用 hasCreate 判：登录页同样有「邮箱+密码」和一个「注册」入口，
-    // 实测登录页水合后（body≈13.6K / inputs=2）会被误判成 signup-form，直接在登录页填表。
-    // 只认注册表单特有的特征：昵称框 / 滑块验证按钮 / URL 就是注册页。
     var looksSignup = probe.hasForm && (probe.hasNameField || probe.hasVerifyBtn || page === "zai-signup");
     if (S.auto && looksSignup) {
       phase("signup-form");
@@ -962,20 +928,16 @@
       return;
     }
 
-    // 6) 已经在注册页：原地等表单出来，**不要再跳**（同样只归注册模式管 ——
-    //    observe 下手动加号时，这个自刷会去 reload 用户正在操作的页面）
     if (S.auto && page === "zai-signup") {
       if (!S.signupAt) {
         S.signupAt = Date.now();
         saveState();
       }
-      // 驱动用 location.href 强跳过来的那份文档常常是「没水合的骨架屏」
-      // （实测 body≈3.3K、inputs=0，干等 12 秒也不出表单）；手动刷新一次必好，
-      // 这里就自动刷 —— 最多 SIGNUP_RELOAD_MAX 次，还出不来才判 unsupported。
+
       if (Date.now() - S.signupAt > SIGNUP_HYDRATE_MS) {
         if ((S.signupReloads || 0) < SIGNUP_RELOAD_MAX) {
           S.signupReloads = (S.signupReloads || 0) + 1;
-          S.signupAt = 0; // 归零：新文档重新起算等待窗口，别白白多刷一次
+          S.signupAt = 0; 
           saveState();
           log("signupReload", String(S.signupReloads), String(location.href).slice(0, 140));
           reloadPage();
@@ -987,18 +949,13 @@
       return;
     }
 
-    // 7) 还没到注册页：切过去。
-    //
-    // 首选「点」登录页上的注册入口 —— SPA 客户端路由，JS 资源已加载、状态都在，
-    // 表单稳定渲染（人工流程就是这么走的）。location.href 强跳是冷加载，落地经常是
-    // 没水合的骨架屏（body 3.3K~7K、一个表单控件都没有），只能当兜底。
     if (S.auto) {
       if (!S.entrySince) {
         S.entrySince = Date.now();
         saveState();
       }
       if (S.signupClickAt) {
-        // 点过了：等表单渲染，超时才往下走兜底
+
         if (Date.now() - S.signupClickAt < SIGNUP_CLICK_WAIT_MS) return;
         S.signupClickAt = 0;
         saveState();
@@ -1011,8 +968,7 @@
           phase("open-signup");
           note("openSignup");
           log("clickSignupEntry", String(location.href).slice(0, 140));
-          // 回传走的是 location.href 跳转，和 SPA 的客户端路由抢同一个通道：
-          // 等这几条回传发完（各 160ms 间隔）再点，别把刚切出来的表单顶掉。
+
           setTimeout(function () {
             try {
               entry.click();
@@ -1021,7 +977,7 @@
           return;
         }
       }
-      // 入口还没渲染出来就继续等着 —— 页面水合要时间，别一上来就冷加载
+
       if (Date.now() - S.entrySince < SIGNUP_ENTRY_WAIT_MS) return;
       if ((S.signupTries || 0) < 2) {
         S.signupTries = (S.signupTries || 0) + 1;
@@ -1037,7 +993,6 @@
       return;
     }
 
-    // 6) 登录协助
     if (page === "bigmodel-login" || page === "zai-authorize" || page === "zai-auth" || onAuthorizePage()) {
       if (S.mode !== "observe") await stageAssist();
       return;
@@ -1054,16 +1009,13 @@
     }, ms || POLL_MS);
   }
 
-  // ------------------------------------------------------------ 宿主入口
-
   window.__zpool = {
     state: S,
     fromHost: function (m) {
       if (!m || typeof m !== "object") return;
       if (m.t === "setMode" && m.mode) {
         S.mode = m.mode;
-        // 「改用邮箱注册」是手动流程里唯一的显式开关：点了才开自动化。
-        // 切回 observe / login 就关掉。
+
         S.auto = m.mode === "register";
         S.stopped = false;
         S.backDone = false;

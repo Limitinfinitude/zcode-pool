@@ -1,5 +1,3 @@
-// 打包：跑 tauri build，把便携版 exe 和 NSIS 安装包收进 release/。
-// 用法：npm run dist
 import { execSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -9,7 +7,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const fail = (m) => { console.error(`[dist] ✗ ${m}`); process.exit(1); };
 const mb = (p) => (statSync(p).size / 1024 / 1024).toFixed(2);
 
-// 三个地方版本号必须一致
 const read = (p) => readFileSync(join(root, p), "utf8");
 const cargo = read("src-tauri/Cargo.toml");
 const versions = {
@@ -39,7 +36,6 @@ const portable = join(outDir, `zcode-pool_${ver}_portable.exe`);
 copyFileSync(rawExe, portable);
 console.log(`[dist] ✓ 便携版  ${basename(portable)}  (${mb(portable)} MB)`);
 
-// NSIS 安装包（没配 nsis 目标时可能不存在，不算失败）
 const nsisDir = join(root, "src-tauri/target/release/bundle/nsis");
 if (existsSync(nsisDir)) {
   const setup = readdirSync(nsisDir)

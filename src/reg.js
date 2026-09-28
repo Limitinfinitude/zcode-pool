@@ -26,7 +26,7 @@ const PAGE_KEYS = {
 const MAX_LOGS = 200;
 
 const LINK_POLL_MS = 3000;
-const LINK_POLL_TRIES = 30; // ≈ 90s
+const LINK_POLL_TRIES = 30; 
 const LINK_MAX_AUTO = 3;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -56,7 +56,6 @@ function nowLabel() {
 function stepsFor(mode) {
   return STEPS[mode] || STEPS.login;
 }
-
 
 export function regActive() {
   return !!S;
@@ -144,7 +143,6 @@ function pushLog(level, code, a, b) {
   if (S.logs.length > MAX_LOGS) S.logs.splice(0, S.logs.length - MAX_LOGS);
 }
 
-
 async function autoSignup() {
   const email = S && S.batchEmail;
   if (!email) return;
@@ -161,7 +159,6 @@ async function autoSignup() {
   }
   render();
 }
-
 
 function pickLink(links) {
   const verify = links.find((u) => /verify|token=|confirm|activ|signup/i.test(u));
@@ -231,12 +228,11 @@ async function autoFetchLink() {
 
 function startManualLink(reason) {
   if (!S) return;
-  if (modalKind === "link") return; // 已经在让手动粘贴了，别反复弹
+  if (modalKind === "link") return; 
   if (reason) pushLog("warn", "fetchLinkManual", reason);
   render();
   openAsk("link");
 }
-
 
 function modeLabel(mode) {
   return tr("reg.mode", mode);
@@ -324,7 +320,7 @@ async function onAction(act) {
       await invoke("reg_action", { action: "retry" });
     } else if (act === "skip") {
       if (onSkip) onSkip();
-      return; // 队列已经往前走了，这个抽屉马上会被关掉，不用重画
+      return; 
     } else if (act === "to-register") {
       const m = await invoke("reg_set_mode", { mode: "register" });
       S.mode = m;
@@ -336,7 +332,6 @@ async function onAction(act) {
   }
   render();
 }
-
 
 function closeModal() {
   if (modal) {

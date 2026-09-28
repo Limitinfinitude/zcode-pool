@@ -27,7 +27,6 @@ pub fn bridge_redirect_uri() -> String {
     )
 }
 
-
 fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {

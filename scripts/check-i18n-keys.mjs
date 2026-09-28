@@ -24,7 +24,7 @@ const DYNAMIC = [
   "prov.bigmodel", "prov.zai",
 ];
 
-const callRe = /\bt\(\s*(["'])((?:(?!\1).)+)\1/g; // 只匹配引号串；模板串走 DYNAMIC
+const callRe = /\bt\(\s*(["'])((?:(?!\1).)+)\1/g; 
 const files = readdirSync(join(root, "src")).filter((f) => f.endsWith(".js"));
 for (const f of files) {
   const src = readFileSync(join(root, "src", f), "utf8");

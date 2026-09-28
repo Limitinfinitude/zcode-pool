@@ -4,9 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>proxy 控制台</title>
-<script>
-  // 主题先落地再渲染，避免闪一下白底
-  try {
+<script>  try {
     var t = new URLSearchParams(location.search).get("theme");
     if (t !== "dark" && t !== "light") t = localStorage.getItem("zpool-theme");
     if (!t) t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
@@ -31,15 +29,15 @@
   html,body{height:100%}
   body{background:var(--bg);color:var(--fg);font:13.5px/1.65 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
        -webkit-font-smoothing:antialiased}
-  .app{display:flex;min-height:100vh}
+  .app{display:flex;height:100vh;overflow:hidden}
 
-  /* ---------- 侧栏 ---------- */
+  
   aside{width:200px;flex:none;background:var(--side);border-right:1px solid var(--line);
-        padding:14px 12px;display:flex;flex-direction:column;gap:3px}
+        padding:14px 12px;display:flex;flex-direction:column;gap:3px;height:100vh;overflow-y:auto}
   .brand{display:flex;align-items:center;gap:9px;padding:6px 8px 16px}
   .logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--acc),var(--violet));
         display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;flex:none}
-  /* 品牌文字竖排：上行 Z·POOL，下一行 proxy 控制台 —— 200px 侧栏里不再把徽标挤断行 */
+  
   .brand-txt{display:flex;flex-direction:column;gap:3px;min-width:0;line-height:1.2}
   .brand b{font-size:14px;letter-spacing:.2px}
   .brand em{font-style:normal;font-size:10px;color:var(--dim2);border:1px solid var(--line);border-radius:5px;
@@ -59,9 +57,9 @@
   .dot.live{animation:pulse 1.4s ease-in-out infinite}
   @keyframes pulse{50%{opacity:.35}}
 
-  /* ---------- 主区 ---------- */
-  main{flex:1;min-width:0;display:flex;flex-direction:column}
-  header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  
+  main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  header{flex:none;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
          backdrop-filter:blur(10px);border-bottom:1px solid var(--line);
          padding:13px 24px;display:flex;align-items:center;gap:12px}
   header h1{font-size:16px;font-weight:600;letter-spacing:.2px}
@@ -73,7 +71,7 @@
   .ibtn{background:var(--card);border:1px solid var(--line);color:var(--dim);border-radius:8px;
         width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px}
   .ibtn:hover{color:var(--fg);border-color:var(--dim2)}
-  .wrap{padding:20px 24px 48px;max-width:1180px;width:100%}
+  .wrap{padding:20px 24px 48px;width:100%;max-width:none;flex:1;min-height:0;overflow-y:auto}
 
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
@@ -90,6 +88,8 @@
             border-bottom:1px solid var(--line2);display:flex;align-items:center;gap:9px}
   .panel .body{padding:15px 16px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);align-items:start}
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--gap);align-items:start}
+  .grid3>.panel+.panel{margin-top:0}
   @media(max-width:960px){
     .grid2{grid-template-columns:1fr}
     aside{width:58px;padding:14px 8px}
@@ -107,6 +107,22 @@
   .copy input{flex:1;min-width:0}
   .chips{display:flex;flex-wrap:wrap;gap:6px}
   .chip{background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:3px 9px;font-size:11.5px}
+  
+  .statusbar{display:flex;flex-wrap:wrap}
+  .sb{flex:1 1 156px;min-width:0;padding:13px 16px;border-right:1px solid var(--line2);
+      transition:background .12s}
+  .sb:last-child{border-right:0}
+  .sb.clickable{cursor:pointer}
+  .sb.clickable:hover{background:var(--hover)}
+  .sb-k{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dim2);letter-spacing:.02em;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sb-go{display:inline-flex;color:var(--dim2);opacity:.7}
+  .sb-v{margin-top:7px;font-size:20px;font-weight:600;line-height:1.15;letter-spacing:-.4px;
+        font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sb-v small{font-size:11.5px;font-weight:400;color:var(--dim2);margin-left:3px;letter-spacing:0}
+  .sb-v .ex{margin-left:4px}
+  .sb-f{margin-top:6px;font-size:11px;color:var(--dim2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media(max-width:900px){ .sb{flex:1 1 46%} }
 
   table{width:100%;border-collapse:collapse;font-size:12.5px}
   th{text-align:left;color:var(--dim);font-weight:600;padding:8px 16px;border-bottom:1px solid var(--line2);
@@ -119,6 +135,8 @@
        font-variant-numeric:tabular-nums;white-space:nowrap}
   th.num{text-align:right}
   .scroll{max-height:380px;overflow:auto}
+  
+  .scroll.full{max-height:none;overflow:visible}
   .tscroll{overflow-x:auto}
   .tag{display:inline-block;font-size:10.5px;border-radius:5px;padding:1.5px 7px;border:1px solid transparent;white-space:nowrap;font-weight:500}
   .tag.ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 13%,transparent);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
@@ -128,14 +146,14 @@
   .tag.mint{color:var(--violet);background:color-mix(in srgb,var(--violet) 14%,transparent);border-color:color-mix(in srgb,var(--violet) 28%,transparent)}
   .tag.dim{color:var(--dim2);background:var(--card2);border-color:var(--line)}
   .blank{color:var(--dim2);padding:26px 16px;text-align:center;font-size:12.5px}
-  /* 统一空状态 / 加载态 */
+  
   .empty{display:flex;flex-direction:column;align-items:center;gap:9px;padding:34px 16px;
          text-align:center;color:var(--dim2);font-size:12.5px;line-height:1.6}
   .empty svg{opacity:.45}
   .empty.breathe svg{animation:breathe 1.6s ease-in-out infinite}
   .empty.sm{flex-direction:row;justify-content:flex-start;gap:7px;padding:8px 0;font-size:12px}
   @keyframes breathe{0%,100%{opacity:.28}50%{opacity:1}}
-  /* 按钮：.btn 常规 / .btn.pri 主 / .btn.danger 危险 */
+  
   .btn,.mini{display:inline-flex;align-items:center;justify-content:center;gap:6px;
         height:28px;padding:0 12px;background:var(--on);border:1px solid var(--line);color:var(--dim);
         border-radius:7px;font:12px/1 inherit;cursor:pointer;text-decoration:none;white-space:nowrap;
@@ -143,6 +161,11 @@
   .btn:hover,.mini:hover{color:var(--fg);border-color:var(--dim2);background:var(--hover)}
   .btn:disabled,.mini:disabled{opacity:.45;cursor:default;border-color:var(--line);background:var(--on);color:var(--dim)}
   .btn:disabled:hover,.mini:disabled:hover{color:var(--dim);border-color:var(--line);background:var(--on)}
+  
+  .btn:not(:disabled):active,.mini:not(:disabled):active{transform:translateY(1px);
+        background:color-mix(in srgb,var(--acc) 14%,var(--on));border-color:var(--dim2)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spin .ic{animation:spin .8s linear infinite}
   .btn.pri,.mini.pri{color:#fff;background:var(--acc);border-color:transparent}
   .btn.pri:hover,.mini.pri:hover{color:#fff;background:color-mix(in srgb,var(--acc) 86%,#000);border-color:transparent}
   .btn.danger,.mini.danger{color:var(--err);border-color:color-mix(in srgb,var(--err) 34%,var(--line))}
@@ -169,18 +192,89 @@
   .histo .b em{font-size:10.5px;color:var(--dim);font-style:normal;font-variant-numeric:tabular-nums}
   .foot-note{color:var(--dim2);font-size:11.5px;padding:12px 16px;border-top:1px solid var(--line2);line-height:1.75}
 
-  /* ---------- 额度条 / 汇总 ---------- */
+  
+  .sec{display:flex;align-items:center;gap:9px;margin:2px 0 10px;color:var(--dim2)}
+  .sec:before{content:"//";font-family:ui-monospace,Consolas,monospace;color:var(--acc);opacity:.75;font-size:12px}
+  .sec b{font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--dim)}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+  .stat .top{display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:600;letter-spacing:.08em;
+             text-transform:uppercase;color:var(--dim2);font-family:ui-monospace,Consolas,monospace}
+  .stat .top .ico{width:15px;height:15px}
+  .stat .big{display:flex;align-items:baseline;gap:6px;margin-top:10px;font-size:27px;font-weight:600;
+             letter-spacing:-.7px;font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
+  .stat .big u{text-decoration:none;font-size:11.5px;font-weight:400;color:var(--dim2);letter-spacing:0}
+  .stat .cap{margin-top:9px;font-size:10.5px;color:var(--dim2);font-family:ui-monospace,Consolas,monospace}
+  .mini12{display:flex;align-items:flex-end;gap:2px;height:32px;margin-top:11px}
+  .mini12 i{flex:1;border-radius:1.5px;min-height:3px;display:block}
+  .secstat{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--gap)}
+  .secstat .s{background:var(--card2);border:1px solid var(--line2);border-radius:10px;padding:10px 13px}
+  .secstat .s .k{font-size:11px;color:var(--dim2);letter-spacing:.03em}
+  .secstat .s .v{margin-top:5px;font-size:17px;font-weight:600;font-family:ui-monospace,Consolas,monospace;
+                 font-variant-numeric:tabular-nums;color:var(--fg)}
+  .secstat .s .v u{text-decoration:none;font-size:11px;font-weight:400;color:var(--dim2);margin-left:3px}
+  .seg{display:flex;gap:2px;flex:1 1 auto;min-width:90px}
+  .seg i{flex:1;height:6px;border-radius:1px;background:color-mix(in srgb,var(--dim) 16%,transparent);display:block}
+  .lim{display:flex;align-items:center;gap:12px;padding:7px 0}
+  .lim .nm{width:118px;flex:none;font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lim .pc{width:46px;flex:none;text-align:right;font-size:12px;font-family:ui-monospace,Consolas,monospace;
+           font-variant-numeric:tabular-nums;color:var(--fg)}
+  .lim .sub{width:150px;flex:none;font-size:11px;color:var(--dim2);font-family:ui-monospace,Consolas,monospace;
+            text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media(max-width:860px){ .lim .sub{display:none} }
+  .pager{display:flex;align-items:center;gap:9px;padding:10px 16px;border-top:1px solid var(--line2);
+         color:var(--dim2);font-size:11.5px;flex-wrap:wrap}
+  .pager .grow{flex:1}
+  .pill{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.06em;border-radius:999px;padding:2px 9px;
+        font-family:ui-monospace,Consolas,monospace}
+  .pill.ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
+  .pill.bad{color:var(--err);background:color-mix(in srgb,var(--err) 14%,transparent)}
+  
+  .tk{display:inline-flex;flex-direction:column;gap:3px;line-height:1.3}
+  .tk .l{display:inline-flex;align-items:center;gap:9px;font-family:ui-monospace,Consolas,monospace;
+         font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tk .ar{font-style:normal;font-size:11.5px;width:9px;text-align:center;flex:none}
+  .tk .in .ar{color:var(--ok)}
+  .tk .out .ar{color:var(--violet)}
+  .tk .ca{color:var(--acc);gap:7px}
+  .tk .ca .ar{color:var(--acc);width:auto;font-size:11px}
+  .tipbox{position:relative;display:inline-flex;align-items:center;color:var(--dim2);cursor:help;margin-left:8px;vertical-align:middle}
+  .tipbox>span{display:inline-flex;width:13px;height:13px;border-radius:50%;border:1px solid var(--line);
+               align-items:center;justify-content:center;font-size:9.5px;line-height:1;color:var(--dim2);background:var(--card2)}
+  .tipbox>.pop{display:none;position:absolute;z-index:60;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%);
+    height:max-content;align-self:flex-start;
+    background:var(--card);border:1px solid color-mix(in srgb,var(--dim2) 34%,var(--line));border-radius:10px;
+    padding:10px 12px;min-width:212px;box-shadow:0 16px 40px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.06);
+    white-space:nowrap;font-weight:400;text-align:left}
+  .tipbox:hover>.pop,.tipbox:focus-within>.pop{display:block}
+  .pop h5{margin:0 0 7px;font-size:11.5px;color:var(--fg);font-weight:600}
+  .pop .r{display:flex;justify-content:space-between;gap:20px;padding:2.5px 0;font-size:11.5px;color:var(--dim)}
+  .pop .r b{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;color:var(--fg);font-weight:600}
+  .pop .hr{height:1px;background:var(--line2);margin:6px 0}
+  .pop .r.tot b{color:var(--acc)}
+  .tk-sum{margin-top:10px;font-size:11.5px;color:var(--dim);
+          font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+  
+  .modal{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.5);display:flex;align-items:center;
+         justify-content:center;padding:24px;backdrop-filter:blur(2px)}
+  .modal[hidden]{display:none}
+  .mbox{background:var(--card);border:1px solid var(--line);border-radius:14px;width:100%;max-width:620px;
+        max-height:78vh;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden}
+  .mbox .mhd{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--line2)}
+  .mbox .mhd b{font-size:13.5px}
+  .msub{color:var(--dim2);font-size:11.5px}
+  .mbox .mbody{padding:15px 16px;overflow:auto}
+
+  
   .qbar{height:7px;border-radius:5px;background:var(--card2);border:1px solid var(--line);overflow:hidden;
         flex:1 1 80px;min-width:56px;display:block;transition:border-color .12s}
-  .qbar>i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--ok),color-mix(in srgb,var(--ok) 50%,var(--acc)));
+  .qbar>i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--acc),color-mix(in srgb,var(--acc) 55%,var(--violet)));
           transition:width .25s}
   .qbar.warn>i{background:var(--warn)}
   .qbar.danger>i{background:var(--err)}
   .qpct{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;
         font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace;
         width:42px;text-align:right;flex:none}
-  /* 一个模型一行：名 | 条 | 百分比 | 剩余/总量 | 到期。hover 只换背景不动 border —— 免得行抖动。
-     名可缩（ellipsis）而数字/日期 flex:none，所以再长的模型名也挤不掉到期时间。 */
+  
   .q-row{display:flex;align-items:center;gap:8px;padding:3.5px 8px;margin:0 -8px;border-radius:7px;
          transition:background .12s}
   .q-row:hover{background:var(--hover)}
@@ -192,11 +286,22 @@
   .q-row .qr{font-size:11px;color:var(--dim2);font-variant-numeric:tabular-nums;
              font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace;
              white-space:nowrap;min-width:78px;text-align:right;flex:none}
-  /* 仪表盘「吞吐 + 今天到期」那一行：左吞吐占 2/3，右边今天到期是一张小卡（占 1/3）。 */
+  
   .dash-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:var(--gap);align-items:start}
-  .dash-row>.panel+.panel{margin-top:0}   /* 抵消 .panel + .panel 的 margin，网格里两栏才对得齐 */
+  .dash-row>.panel+.panel{margin-top:0}   
   @media(max-width:820px){.dash-row{grid-template-columns:1fr}}
-  /* 今天到期：按模型一行一个剩余 token 量。不红 —— 强调走 --acc，深浅两套主题自动跟随。 */
+  
+  .due-card{flex:none;width:216px;border-left:1px solid var(--line);padding-left:18px;align-self:stretch}
+  .due-hd{display:flex;align-items:center;font-size:12.5px;color:var(--fg);margin-bottom:9px}
+  .due-sub{color:var(--dim2);font-size:11px}
+  
+  .acct-mid{flex:none;width:186px;border-left:1px solid var(--line);padding-left:18px;align-self:stretch}
+  .acct-mid .kv{padding:2px 0}
+  .acct-mid .kv .k{width:58px}
+  .acct-mid-act{display:flex;gap:6px;margin-top:9px}
+  @media(max-width:820px){ .acct-mid{width:100%;border-left:0;border-top:1px solid var(--line);padding:12px 0 0} }
+  @media(max-width:820px){ .due-card{width:100%;border-left:0;border-top:1px solid var(--line);padding:12px 0 0} }
+  
   .due-list{display:flex;flex-direction:column;gap:4px}
   .due-row{display:flex;align-items:baseline;gap:10px}
   .due-nm{flex:1;min-width:0;font-size:12px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -205,42 +310,41 @@
   .due-sum{margin-top:9px;padding-top:8px;border-top:1px solid var(--line2);font-size:11.5px;color:var(--dim2);
            font-variant-numeric:tabular-nums}
   .due-none{font-size:11.5px;color:var(--dim2);padding:2px 0}
-  /* 一行一个号、占满宽度 —— 额度条/到期/按钮都有空间；旧的 minmax(520px,1fr) 是双列 */
+  
   .acct-grid{display:grid;grid-template-columns:1fr;gap:var(--gap)}
   .acct-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
   .acct-card.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
   .acct-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
   .acct-hd b{font-size:13.5px}
   .acct-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;border-top:1px solid var(--line2);padding-top:10px}
-  /* 账号页筛选条：状态 <select> + 名字搜索框（不用按钮，免得页面按钮数变） */
+  
   .acct-filter{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
                border-bottom:1px solid var(--line2);padding:10px 16px}
   .acct-filter .sel{padding:5px 9px}
   .acct-filter .fcount{color:var(--dim2);font-size:11.5px;font-variant-numeric:tabular-nums}
-  /* 设置页里策略分组的分隔标题 */
+  
   .sec-hd{color:var(--dim2);font-size:11px;font-weight:600;letter-spacing:.12em;
           margin:22px 2px 10px;text-transform:uppercase}
   .sumrow{display:flex;align-items:center;gap:12px;padding:5px 0}
   .sumrow .sl{width:140px;flex:none;font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-  /* ---------- 环形仪表盘（额度汇总，几何照搬 exe 面板） ----------
-     颜色一律走 --* 变量 + currentColor：深浅两套主题都自动跟着变，不写死色值。 */
-  .dash{display:flex;align-items:center;gap:18px;flex:none}
+  
+  .dash{display:flex;align-items:center;gap:18px;flex:none;justify-content:space-between}
   .dash-hero{display:flex;align-items:center;gap:14px;flex:none}
   .dash-hero-txt{display:flex;flex-direction:column;gap:5px;min-width:0}
   .dash-hero-lb{font-size:12.5px;color:var(--dim)}
   .dash-hero-meta{font-size:11.5px;color:var(--dim2);font-variant-numeric:tabular-nums}
   .dash-hero-hint{font-size:11px;color:var(--dim2);max-width:220px;line-height:1.5}
-  .gauges{display:flex;gap:16px;min-width:0;overflow-x:auto;padding:4px 0 4px 20px;border-left:1px solid var(--line);flex:1}
+  .gauges{display:flex;gap:16px;min-width:0;overflow-x:auto;padding:4px 0 4px 20px;border-left:1px solid var(--line);flex:0 1 auto}
   .mgauge{display:flex;flex-direction:column;align-items:center;gap:4px;width:100px;flex:none}
   .mgauge-name{font-size:12px;color:var(--dim2);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .dash-empty{font-size:12.5px;color:var(--dim2);align-self:center}
-  /* 环本体：颜色由 color 决定（默认 var(--acc)，warn/danger 换色），描边用 currentColor 渐变 */
+  
   .gauge{width:96px;height:96px;flex:none;color:var(--acc);overflow:visible}
   .gauge.big{width:132px;height:132px}
   .gauge.warn{color:var(--warn)}
   .gauge.danger{color:var(--err)}
-  /* 轨道：半透明 --dim2，深色(#66738a/深卡) 与浅色(#8b94a3/白卡) 都看得见 */
+  
   .gauge .g-track{stroke:color-mix(in srgb,var(--dim2) 55%,transparent)}
   .gauge .g-tick{stroke:var(--dim2);stroke-width:.7;stroke-linecap:round;opacity:.8}
   .gauge .g-tick.major{stroke:var(--dim);stroke-width:1.1;opacity:1}
@@ -261,7 +365,7 @@
     .gauges{border-left:0;border-top:1px solid var(--line);padding:10px 0 0;width:100%}
   }
 
-  /* ---------- 邮件原文 / 链接 ---------- */
+  
   .lks{margin:10px 0 12px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card2)}
   .lks .hd{padding:7px 11px;font-size:11.5px;color:var(--dim);border-bottom:1px solid var(--line2)}
   .lk{display:flex;align-items:center;gap:9px;padding:8px 11px;border-bottom:1px solid var(--line2)}
@@ -274,7 +378,7 @@
   .lk a:hover{text-decoration:underline}
   .mframe{width:100%;flex:1;min-height:340px;border:1px solid var(--line);border-radius:10px;background:#fff}
   .mtoggle{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);margin:2px 0 10px;cursor:pointer;user-select:none}
-  /* 邮箱管理：左列表 / 右正文 各自滚动，正文 iframe 撑满可用高度 */
+  
   .mbox-split{display:flex;height:calc(100vh - 236px);min-height:440px}
   .mbox-list{width:344px;flex:none;border-right:1px solid var(--line2);overflow:auto}
   .mbox-list .mrow{padding:9px 12px;border-bottom:1px solid var(--line2);cursor:pointer;transition:background .12s}
@@ -303,7 +407,7 @@
     <div class="nav" id="nav">
       <a data-r="dash" class="on"><span class="ico">◱</span><span class="lb">仪表盘</span></a>
       <a data-r="chan"><span class="ico">◈</span><span class="lb">渠道</span></a>
-      <a data-r="usage"><span class="ico">▤</span><span class="lb">用量</span></a>
+      <a data-r="usage"><span class="ico">▤</span><span class="lb">使用记录</span></a>
       <a data-r="acct"><span class="ico">☰</span><span class="lb">账号</span></a>
       <a data-r="mail"><span class="ico">✉</span><span class="lb">邮箱</span></a>
       <a data-r="keys"><span class="ico">⚒</span><span class="lb">设置</span></a>
@@ -323,10 +427,10 @@
     <div class="wrap" id="view"></div>
   </main>
 </div>
+<div class="modal" id="claim" hidden><div class="mbox" id="cmbox"></div></div>
 
-<script>
-const $ = (id) => document.getElementById(id);
-// 页面出什么错都回传一份给中继（落到 oauth.log）—— 不用开 F12 也能查
+<script>const $ = (id) => document.getElementById(id);
+
 const rep = (kind, detail) => {
   try {
     fetch("/client-log", { method: "POST", headers: { "content-type": "application/json" },
@@ -337,17 +441,14 @@ window.onerror = (m, src, l) => rep("onerror", m + " @line " + l);
 window.addEventListener("unhandledrejection", (e) => rep("reject", (e.reason && (e.reason.stack || e.reason.message || e.reason)) || "?"));
 rep("loaded", location.href);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-// srcdoc 是**属性值**，会被当 HTML 解析：只转义 & 和 " 就够（防属性被撑破）。
-// ⚠ **不能**把 < > 也转掉 —— 那样邮件 HTML 会被当成纯文本源码显示，
-// 用户看到的是满屏标签、不是邮件（之前就是这么坏的）。
+
+
 const escSrcdoc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const num = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
 const rate = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : (Math.round(n * 10) / 10).toString());
 const hhmmss = (t) => new Date(t).toLocaleTimeString("zh-CN", { hour12: false });
 
-/* ---------- 图标（内联 SVG：粗细/基线/大小统一，不吃字体） ---------- */
-// 只用 stroke 描边、currentColor，深浅两套主题都跟着文本色走
 const ICON_PATHS = {
   dash: '<rect x="3.2" y="3.2" width="7.6" height="9.6" rx="1.8"/><rect x="13.2" y="3.2" width="7.6" height="5.4" rx="1.8"/><rect x="13.2" y="11.6" width="7.6" height="9.2" rx="1.8"/><rect x="3.2" y="15.8" width="7.6" height="5" rx="1.8"/>',
   chan: '<circle cx="6.2" cy="6.4" r="2.6"/><circle cx="6.2" cy="17.6" r="2.6"/><circle cx="17.8" cy="12" r="2.6"/><path d="M8.8 6.4h3.2a2.4 2.4 0 0 1 2.4 2.4v1M8.8 17.6h3.2a2.4 2.4 0 0 0 2.4-2.4v-1"/>',
@@ -385,14 +486,14 @@ function ICON(name, size) {
     '" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     p + "</svg>";
 }
-// 侧栏是静态 HTML：<span class="ico"> 只当容器，这里回填 SVG（data-r 不变）
+
 const NAVICON = { dash: "dash", chan: "chan", policy: "policy", usage: "usage", acct: "users", mail: "mail", mbox: "inbox", admin: "wrench", keys: "gear", logs: "list" };
 for (const a of document.querySelectorAll("#nav a[data-r]")) {
   const i = a.querySelector(".ico");
   if (i) i.innerHTML = ICON(NAVICON[a.dataset.r] || "dash", 17);
 }
 $("theme").innerHTML = ICON("theme", 15);
-/* ---------- 空状态 / 加载态（统一「图标 + 一句灰字」） ---------- */
+
 function emptyState(icon, text) {
   return '<div class="empty">' + ICON(icon || "inbox", 26) + "<span>" + esc(text || "") + "</span></div>";
 }
@@ -400,26 +501,20 @@ function loadingState(text) {
   return '<div class="empty breathe">' + ICON("refresh", 26) + "<span>" + esc(text || "加载中…") + "</span></div>";
 }
 
-const ROUTES = { dash: "仪表盘", chan: "渠道", policy: "策略", usage: "用量", acct: "账号", mail: "邮箱", mbox: "邮箱管理", admin: "管理", keys: "设置", logs: "日志" };
+const ROUTES = { dash: "仪表盘", chan: "渠道", policy: "策略", usage: "使用记录", acct: "账号", mail: "邮箱", mbox: "邮箱管理", admin: "管理", keys: "设置", logs: "日志" };
 let route = (location.hash || "").slice(1);
-// /proxy/admin 也指向这个页面：没有 hash 时按路径落到「管理」
+
 if (!route || !ROUTES[route]) route = /\/admin\/?$/.test(location.pathname) ? "admin" : "dash";
 let S = null, LOGS = [], fails = 0, tickN = 0, showAll = false;
-// 用户正在操作表单（下拉/输入框）时，轮询式刷新先别动 —— 否则可能把用户手里的控件换掉：
-// 老 bug 就是重画换掉 <select> 导致「下拉选不中」。这个守卫**保留**。
+
 function isEditing() {
   const el = document.activeElement;
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
 }
-/* ---------- 局部更新（轮询专用） ----------
-   为什么：render() 是 `view.innerHTML = view()` —— **整个内容区重建**。
-   鼠标底下那个按钮会被销毁重建，它身上 `transition: background .12s` 就从头再播一遍，
-   每 2 秒一次 —— 用户看到「鼠标一移到按钮上就一直跳」。
-   所以把「数据刷新」和「重建 DOM」拆开：轮询走 patch()，只改会变的几个节点，
-   绝不 innerHTML = view()。render() 只在切路由 / 用户主动操作 / 结构真变了时调。 */
-const PATCHED = { dash: 1, chan: 1, logs: 1, usage: 1 };   // 这几个页面走 patch()，轮询不重建
+
+const PATCHED = { dash: 1, chan: 1, logs: 1, usage: 1 };   
 let PATCH_SIG = "", ACC_SIG = "", MAIL_SIG = "", USAGE_SIG = "";
-// 数据指纹：给「不手写 patch 的页面」用 —— 轮询时指纹没变就一个 DOM 都不动
+
 function dataSig() {
   const s = S || {};
   const ch = (s.channels || []).map((c) => {
@@ -444,35 +539,46 @@ function mailSig() {
   const list = (MAIL && MAIL.accounts) || [];
   return [list.length, list.map((x) => [x.email, x.status, x.note, x.has_token].join(",")).join("|")].join("~");
 }
-const sigUsage = () => JSON.stringify((USAGE && USAGE.rows) || []);
-// DOM 小工具：找不到节点就跳过（说明当前不在那个页 / 结构变了）
+
+const sigUsage = () => JSON.stringify(((USAGE && USAGE.rows) || [])) + "~" + JSON.stringify((USAGE && USAGE.stats) || {});
+
+let PAGER_SIG = "", USAGE_OPTS_SIG = "", POOL_LAT_SIG = "";
+const pagerSig = () => [((USAGE && USAGE.rows) || []).length, UPAGE.page, UPAGE.size].join(":");
+let USAGE_BUSY = false;   
+
+function usageOptsSig() {
+  const st = (USAGE && USAGE.stats) || {};
+  return JSON.stringify([(S && S.accounts) || [], (st.byAcct || []).map((x) => x.k),
+    (S && S.models) || [], (st.byModel || []).map((x) => x.k), (st.byKey || []).map((x) => x.k)]);
+}
+
 const P = (n) => document.querySelector('[data-p="' + n + '"]');
 const PT = (n, v) => { const e = P(n); if (e) e.textContent = v == null ? "" : v; };
 const PH = (n, v) => { const e = P(n); if (e) e.innerHTML = v; };
 
-// 用量页：明细 + 聚合 + 服务端筛选
 let USAGE = null;
-// 仪表盘卡片要的聚合（/proxy/usage/stats）
+
 let STATS = null;
-// 日志分页
+
 const LOGP = { page: 0, limit: 50, total: 0, lines: [], loading: false };
-// 账号页 / 邮箱页 / 邮箱管理页的缓存
+
 let ACC = null, ACC_DETAIL = null, ACC_DETAIL_ID = "";
-// 账号页：额度缓存（id -> {data|error|loading}）、全量查询进度、是否已自动查过一轮
+
 const QMAP = {};
 const QLOAD = { running: false, done: 0, total: 0 };
 let QAUTO = false;
-// 领取流程状态（点「领取」→ exe 弹滑块窗 → 回来轮询结果）
+
 let CLAIM = { id: "", plan: "", running: false, msg: "", ok: null, startedAt: 0 };
 let MAIL = null, MAIL_SEL = new Set();
-// 邮箱管理页支持 ?email=xxx 预选（方便从别处直接链进来看某封信）
+
 const Q_EMAIL = new URLSearchParams(location.search).get("email") || "";
 let MBOX = { email: Q_EMAIL, data: null, sel: -1, err: "", loading: false, showImg: false };
-const UFILTER = { acct: "", model: "", fail: false };
+const UFILTER = { acct: "", model: "", key: "", fail: false };
+
+const UPAGE = { page: 0, size: 50 };
 const HIST = [];
 const NOISE = ["page-disk", "mint-window", "mint-load", "已存在"];
 
-/* ---------- 主题 ---------- */
 function themeNow() { return document.documentElement.dataset.theme || "dark"; }
 function paintCharts() { if (route === "dash") { drawSpark(); } }
 $("theme").onclick = () => {
@@ -482,7 +588,11 @@ $("theme").onclick = () => {
   render();
 };
 
-/* ---------- 小工具 ---------- */
+$("claim").onclick = (e) => { if (e.target === $("claim")) { ACC_DETAIL = null; renderClaimModal(); } };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && ACC_DETAIL) { ACC_DETAIL = null; renderClaimModal(); }
+});
+
 function bars(h) {
   const hist = (h && h.history) || [];
   if (!hist.length) return '<span style="color:var(--dim2)">—</span>';
@@ -499,7 +609,6 @@ function allLatency() {
   return out;
 }
 
-/* ---------- 图：吞吐曲线 ---------- */
 function drawSpark() {
   const c = $("spark");
   if (!c) return;
@@ -532,7 +641,6 @@ function drawSpark() {
   x.fillText(rate(max) + " tok/s", 4, 12);
 }
 
-/* ---------- 视图：仪表盘 ---------- */
 function histogram() {
   const ms = allLatency().filter((v) => v != null);
   if (!ms.length) return emptyState("chan", "还没有探测数据 —— 到「渠道」页点「全部探测」");
@@ -571,74 +679,58 @@ function viewDash() {
   const s = S || {}, m = s.mint || {};
   const t = (STATS && STATS.total) || { n: 0, in: 0, out: 0, fail: 0, avgMs: null };
   const chans = s.channels || [];
-  // routed.account 是账号 **id**，要拿 channels 映射回名字 —— 之前直接把 id 显示出来了
+
   const nameOf = (id) => (chans.find((c) => c.id === id) || {}).name || id;
   const probed = chans.filter((c) => (c.health || {}).lastAt).length;
   const down = chans.filter((c) => (c.health || {}).lastMs == null && (c.health || {}).lastAt).length;
   const froz = chans.filter((c) => c.frozen).length;
-  return `
-  <div class="cards">
-    <div class="card">
-      <div class="lb">服务状态</div>
-      <div class="n" data-p="dp-svc" style="color:${s.external ? "var(--ok)" : "var(--dim)"}">${s.external ? "运行中" : "已关闭"}</div>
-      <div class="foot" data-p="dp-svc-foot">127.0.0.1:${s.port ?? "—"}</div>
-    </div>
-    <div class="card">
-      <div class="lb">当前路由</div>
-      <div class="n" data-p="dp-route" style="font-size:18px">${esc(s.routed ? nameOf(s.routed.account) : "—")}</div>
-      <div class="foot" data-p="dp-route-foot">${esc(s.routed ? s.routed.model + " · 第 " + s.routed.tries + " 个候选" : "还没有请求")}</div>
-    </div>
-    <div class="card">
-      <div class="lb" data-p="dp-tps-lb">生成速度${s.tpsEstimated ? '<span class="ex">估算</span>' : ""}</div>
-      <div class="n" data-p="dp-tps">${rate(s.tps || 0)}<small>tok/s</small></div>
-      <div class="foot" data-p="dp-tps-foot">首字节 ${s.ttfbMs == null ? "—" : s.ttfbMs + " ms"} · 总时长 ${s.totalMs == null ? "—" : (s.totalMs / 1000).toFixed(1) + " s"}</div>
-    </div>
-    <div class="card">
-      <div class="lb">累计输出</div>
-      <div class="n" data-p="dp-tok">${num(s.tokens)}<small>tok</small></div>
-      <div class="foot" data-p="dp-tok-foot">${num(Math.round((s.bytes || 0) / 1024))} KB · ${num(s.served)} 次请求</div>
-    </div>
-    <div class="card">
-      <div class="lb">平均响应时间</div>
-      <div class="n" data-p="dp-avg">${t.avgMs == null ? "—" : num(t.avgMs)}<small>ms</small></div>
-      <div class="foot">整发时长 · 来自用量记录</div>
-    </div>
-    <div class="card">
-      <div class="lb">请求数</div>
-      <div class="n" data-p="dp-req">${num(t.n)}</div>
-      <div class="foot" data-p="dp-req-foot">${t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功"}</div>
-    </div>
-    <div class="card">
-      <div class="lb">累计 Token</div>
-      <div class="n" data-p="dp-tokall">${num((t.in || 0) + (t.out || 0))}</div>
-      <div class="foot" data-p="dp-tokall-foot">输入 ${num(t.in)} · 输出 ${num(t.out)}</div>
-    </div>
-    <div class="card" role="button" tabindex="0" style="cursor:pointer" onclick="location.hash='#chan'" title="去渠道页看明细">
-      <div class="lb">号池健康 <span class="grow"></span><span style="color:var(--dim2);display:flex;align-items:center;gap:3px">明细${ICON("chevronR", 12)}</span></div>
-      <div class="n" data-p="dp-health">${probed}<small>/ ${chans.length}</small></div>
-      <div class="foot" data-p="dp-health-foot">${down ? '<span style="color:var(--err)">' + down + " 个不通</span>" : "已探测的正常"}${froz ? ' · <span style="color:var(--warn)">' + froz + " 个被冻</span>" : ""}</div>
-    </div>
-  </div>
+  const cell = (k, node, foot, opt) => {
+    const o = opt || {};
+    return '<div class="sb' + (o.click ? " clickable" : "") + '"' +
+      (o.click ? ' role="button" tabindex="0" onclick="location.hash=\'#chan\'" title="' + esc(o.title || "") + '"' : "") + ">" +
+      '<div class="sb-k">' + k + (o.click ? '<span class="sb-go">' + ICON("chevronR", 11) + "</span>" : "") + "</div>" +
+      '<div class="sb-v"' + (o.vStyle || "") + ">" + node + "</div>" +
+      '<div class="sb-f"' + (o.fAttr || "") + ">" + foot + "</div></div>";
+  };
+  return `<div class="panel"><div class="statusbar">
+    ${cell("服务", s.external ? "运行中" : "已关闭", '127.0.0.1:' + (s.port ?? "—"),
+      { vStyle: ' data-p="dp-svc" style="color:' + (s.external ? "var(--ok)" : "var(--dim)") + '"', fAttr: ' data-p="dp-svc-foot"' })}
+    ${cell("当前路由", esc(s.routed ? nameOf(s.routed.account) : "—"),
+      esc(s.routed ? s.routed.model + " · 第 " + s.routed.tries + " 个候选" : "还没有请求"),
+      { vStyle: ' data-p="dp-route"', fAttr: ' data-p="dp-route-foot"' })}
+    ${cell('<span data-p="dp-tps-lb">号池吞吐' + (s.tpsEstimated ? '<span class="ex">估算</span>' : "") + "</span>",
+      rate(s.tps || 0) + "<small>tok/s</small>",
+      "单发 " + (s.lastTps == null ? "—" : rate(s.lastTps)) + " tok/s · 首字节 " + (s.ttfbMs == null ? "—" : s.ttfbMs + " ms"),
+      { vStyle: ' data-p="dp-tps"', fAttr: ' data-p="dp-tps-foot"' })}
+    ${cell("平均响应时间", t.avgMs == null ? "—" : num(t.avgMs), "整发时长 · 来自用量记录",
+      { vStyle: ' data-p="dp-avg"', fAttr: ' data-p="dp-avg-foot"' })}
+    ${cell("请求数", num(t.n), t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功",
+      { vStyle: ' data-p="dp-req"', fAttr: ' data-p="dp-req-foot"' })}
+    ${cell("累计 Token", num((t.in || 0) + (t.out || 0) + (t.cache || 0)),
+      "输入 " + num(t.in) + " · 输出 " + num(t.out) + " · 缓存 " + num(t.cache || 0),
+      { vStyle: ' data-p="dp-tokall"', fAttr: ' data-p="dp-tokall-foot"' })}
+    ${cell("本次运行输出", num(s.tokens) + "<small>tok</small>",
+      "进程启动至今 · " + num(Math.round((s.bytes || 0) / 1024)) + " KB（累计看左边那格）",
+      { vStyle: ' data-p="dp-tok"', fAttr: ' data-p="dp-tok-foot"' })}
+    ${cell("号池健康", probed + "<small>/ " + chans.length + "</small>",
+      (down ? '<span style="color:var(--err)">' + down + " 个不通</span>" : "已探测的正常") + (froz ? ' · <span style="color:var(--warn)">' + froz + " 个被冻</span>" : ""),
+      { click: true, title: "去渠道页看明细", vStyle: ' data-p="dp-health"', fAttr: ' data-p="dp-health-foot"' })}
+  </div></div>
 
-  <div class="dash-row">
-    <div class="panel">
-      <h2>吞吐 <span class="grow"></span><span data-p="dp-spark-note" style="color:var(--dim2);font-weight:400">最近 ${HIST.length} 次采样 · 2 秒一次</span></h2>
-      <div class="body"><canvas id="spark" style="height:64px"></canvas></div>
-    </div>
-    <div class="panel">
-      <h2>今天到期 <span class="grow"></span><span style="color:var(--dim2);font-weight:400">按剩余 token</span></h2>
-      <div class="body" data-p="due-today">${dueTodayInner()}</div>
-    </div>
+  <div class="panel">
+    <h2>吞吐 <span class="grow"></span><span data-p="dp-spark-note" style="color:var(--dim2);font-weight:400">最近 ${HIST.length} 次采样 · 2 秒一次</span></h2>
+    <div class="body"><canvas id="spark" style="height:64px"></canvas></div>
   </div>
 
   <div class="grid2" style="margin-top:var(--gap)">
     <div class="panel"><h2>探测延迟分布</h2><div class="body" data-p="dp-histo">${histogram()}</div></div>
     <div class="panel"><h2>请求结果分布</h2><div class="body" data-p="dp-errdist">${errDist()}</div></div>
   </div>
+  </div>
 
 `;
 }
-/* ---------- 局部更新：仪表盘（只改数字/图，不换 DOM） ---------- */
+
 function patchDash() {
   const s = S || {};
   const t = (STATS && STATS.total) || { n: 0, in: 0, out: 0, fail: 0, avgMs: null };
@@ -652,29 +744,74 @@ function patchDash() {
   PT("dp-svc-foot", "127.0.0.1:" + (s.port ?? "—"));
   PT("dp-route", s.routed ? nameOf(s.routed.account) : "—");
   PT("dp-route-foot", s.routed ? s.routed.model + " · 第 " + s.routed.tries + " 个候选" : "还没有请求");
-  PH("dp-tps-lb", "生成速度" + (s.tpsEstimated ? '<span class="ex">估算</span>' : ""));
+  PH("dp-tps-lb", "号池吞吐" + (s.tpsEstimated ? '<span class="ex">估算</span>' : ""));
   PH("dp-tps", rate(s.tps || 0) + "<small>tok/s</small>");
-  PT("dp-tps-foot", "首字节 " + (s.ttfbMs == null ? "—" : s.ttfbMs + " ms") + " · 总时长 " + (s.totalMs == null ? "—" : (s.totalMs / 1000).toFixed(1) + " s"));
+  PT("dp-tps-foot", "单发 " + (s.lastTps == null ? "—" : rate(s.lastTps)) + " tok/s · 首字节 " + (s.ttfbMs == null ? "—" : s.ttfbMs + " ms"));
   PH("dp-tok", num(s.tokens) + "<small>tok</small>");
-  PT("dp-tok-foot", num(Math.round((s.bytes || 0) / 1024)) + " KB · " + num(s.served) + " 次请求");
+  PT("dp-tok-foot", "进程启动至今 · " + num(Math.round((s.bytes || 0) / 1024)) + " KB（累计看左边那格）");
   PH("dp-avg", (t.avgMs == null ? "—" : num(t.avgMs)) + "<small>ms</small>");
+  PT("dp-avg-foot", "整发时长 · 来自用量记录");
   PT("dp-req", num(t.n));
   PH("dp-req-foot", t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功");
-  PT("dp-tokall", num((t.in || 0) + (t.out || 0)));
-  PT("dp-tokall-foot", "输入 " + num(t.in) + " · 输出 " + num(t.out));
+  PT("dp-tokall", num((t.in || 0) + (t.out || 0) + (t.cache || 0)));
+  PT("dp-tokall-foot", "输入 " + num(t.in) + " · 输出 " + num(t.out) + " · 缓存 " + num(t.cache || 0));
   PH("dp-health", probed + "<small>/ " + chans.length + "</small>");
   PH("dp-health-foot", (down ? '<span style="color:var(--err)">' + down + " 个不通</span>" : "已探测的正常") + (froz ? ' · <span style="color:var(--warn)">' + froz + " 个被冻</span>" : ""));
   PT("dp-spark-note", "最近 " + HIST.length + " 次采样 · 2 秒一次");
   PH("dp-histo", histogram());
   PH("dp-errdist", errDist());
-  PH("due-today", dueTodayInner());
   drawSpark();
 }
 
-/* ---------- 视图：渠道 ---------- */
 let chanFilter = "all";
-// 账号页筛选（纯前端：只改卡片的 display，不重画、不动接口）
-let acctFilter = "all", acctSearch = "";
+
+let acctFilter = "all", acctSearch = "", acctPage = 1;
+const ACCT_PAGE_SIZE = 20;
+
+function poolLat() {
+  const all = (S && S.channels) || [];
+  const xs = [];
+  let probed = 0;
+  for (const c of all) {
+    const h = c.health || {};
+    if (h.lastAt) probed++;
+    for (const s of h.history || []) if (s && s.ms != null) xs.push(s.ms);
+  }
+  xs.sort((a, b) => a - b);
+  const n = xs.length;
+  const at = (p) => (n ? xs[Math.min(n - 1, Math.floor(p * (n - 1)))] : null);
+  return {
+    probed, all: all.length, n,
+    avg: n ? Math.round(xs.reduce((a, b) => a + b, 0) / n) : null,
+    med: at(0.5), p95: at(0.95), max: n ? xs[n - 1] : null,
+  };
+}
+
+function poolLatRecent(n) {
+  const all = (S && S.channels) || [];
+  const pts = [];
+  for (const c of all) {
+    for (const s of (c.health || {}).history || []) {
+      if (s && s.ms != null) pts.push({ at: s.at, ms: s.ms });
+    }
+  }
+  pts.sort((a, b) => a.at - b.at);
+  return pts.slice(-n).map((x) => x.ms);
+}
+function poolLatHtml() {
+  const p = poolLat();
+  const tile = (k, v, u, extra) => '<div class="s"><div class="k">' + esc(k) + '</div><div class="v">' +
+    (v == null ? "—" : typeof v === "string" ? esc(v) : num(v)) + (v != null && u ? "<u>" + u + "</u>" : "") +
+    "</div>" + (extra || "") + "</div>";
+
+  const recent = poolLatRecent(12);
+  const bars = recent.length ? miniBars(recent, "var(--ok)") : "";
+  return '<div class="secstat" style="margin-bottom:var(--gap)">' +
+    tile("平均延迟", p.avg, "ms", bars) +
+    tile("中位数", p.med, "ms", bars) + tile("P95", p.p95, "ms") +
+    tile("最慢一次", p.max, "ms") + tile("已探测号", p.probed + "/" + p.all, "") +
+    tile("样本", p.n, "次探测") + "</div>";
+}
 function viewChan() {
   const s = S || {};
   const all = s.channels || [];
@@ -703,7 +840,7 @@ function viewChan() {
         (c.frozen ? ' <button class="mini" data-unfreeze="' + esc(c.id) + '">' + ICON("power", 14) + "解冻</button>" : "") +
       "</td></tr>";
   }).join("");
-  return '<div class="panel">' +
+  return '<div data-p="poolLat">' + poolLatHtml() + "</div>" + '<div class="panel">' +
     '<h2>号池渠道 <span class="grow"></span>' +
     '<span data-p="chan-count" style="color:var(--dim2);font-weight:400;margin-right:10px">' + chans.length + "/" + all.length +
     " · 每 90 秒自动探一个（带抖动）</span>" +
@@ -711,13 +848,13 @@ function viewChan() {
       '<button class="mini' + (chanFilter === k ? " on" : "") + '" data-f="' + k + '">' +
       ({ all: "全部", down: "不通", frozen: "被冻", untested: "未探测" })[k] + "</button>").join(" ") +
     ' <button class="mini pri" id="probeall">' + ICON("play", 14) + "全部探测</button></h2>" +
-    (rows ? '<div class="scroll"><table><thead><tr><th>账号</th><th>状态</th><th class="num">延迟</th><th>近况</th>' +
+    (rows ? '<div class="scroll full"><table><thead><tr><th>账号</th><th>状态</th><th class="num">延迟</th><th>近况</th>' +
             '<th class="num">成功率</th><th class="num">连败</th><th>上次探测</th><th></th></tr></thead><tbody>' + rows + "</tbody></table></div>"
           : emptyState("inbox", "号池是空的 —— 先去「账号库」加号")) +
     '<div class="foot-note">探测走的是<b>额度接口</b>（免费、不用验证码），不真发模型请求 —— 那会烧号的额度。' +
     "「解冻」清掉本地的「用尽 / 限流」标记，上游恢复了就不用干等 TTL。</div></div>";
 }
-/* ---------- 局部更新：渠道健康表（服务端每 90 秒轮换探测，值会变） ---------- */
+
 function patchChan() {
   const s = S || {};
   const all = s.channels || [];
@@ -730,7 +867,7 @@ function patchChan() {
     return true;
   });
   const rows = document.querySelectorAll('[data-p="crow"]');
-  // 行集合变了（筛选、增删号、冻结状态变）→ 结构变了，交回 render()
+
   if ([...rows].map((r) => r.dataset.id).join(",") !== want.map((c) => c.id).join(",")) { render(); return; }
   PT("chan-count", want.length + "/" + all.length + " · 每 90 秒自动探一个（带抖动）");
   for (const tr of rows) {
@@ -747,19 +884,25 @@ function patchChan() {
     const e = q("rate"); if (e) e.textContent = h.rate == null ? "—" : h.rate + "%";
     const f = q("streak"); if (f) f.innerHTML = h.streak ? '<span style="color:var(--err)">' + h.streak + "</span>" : "0";
     const g = q("last"); if (g) g.textContent = h.lastAt ? hhmmss(h.lastAt) : "—";
-    if (!!c.frozen !== !!tr.querySelector("[data-unfreeze]")) { render(); return; }   // 「解冻」按钮有无 = 结构
+    if (!!c.frozen !== !!tr.querySelector("[data-unfreeze]")) { render(); return; }   
   }
+
+  const sig = ((S && S.channels) || []).map((c) => {
+    const h = c.health || {};
+    return [h.lastAt, h.lastMs, (h.history || []).length].join(":");
+  }).join("|");
+  if (sig !== POOL_LAT_SIG) { POOL_LAT_SIG = sig; PH("poolLat", poolLatHtml()); }
 }
 
-/* ---------- 视图：策略 ---------- */
 const POLICY = [
   ["expire_first", "额度最早过期优先", "同模型下挑最早到期的号，用完再换 —— 默认"],
   ["most_left", "剩余最多优先", "挑该模型剩余额度最多的号"],
   ["pinned", "只用指定号", "锁死一个号，不自动切"],
 ];
+
 const MODELMODE = [
-  ["follow", "跟随客户端", "客户端请求哪个模型就用哪个"],
-  ["auto", "自动回退", "该模型全库没额度时，换还有额度的模型"],
+  ["auto", "自动回退", "客户端要的模型全库没额度时，换白名单里另一个还有额度的（会记一条 model-fallback 日志）"],
+  ["pinned", "指定模型", "不管客户端要什么，一律用指定的那个；用完也不换，宁可报错"],
 ];
 function seg(items, cur, act) {
   return '<div class="seg">' + items.map(([v, label]) =>
@@ -777,9 +920,17 @@ function viewPolicy() {
         "</select></div>" : "") +
     '<div style="margin-top:13px;color:var(--dim2);font-size:12px">' + esc((POLICY.find((p) => p[0] === cur) || POLICY[0])[2]) + "</div></div>" +
     '<h2 style="border-top:1px solid var(--line2)">模型策略</h2><div class="body">' + seg(MODELMODE, mm, "mode") +
-    '<div style="margin-top:13px;color:var(--dim2);font-size:12px">' + esc((MODELMODE.find((x) => x[0] === mm) || MODELMODE[0])[1]) + "</div></div>" +
+    (mm === "pinned"
+      ? '<div class="kv" style="margin-top:14px"><span class="k">指定模型</span>' +
+        '<select id="modepin" class="sel" style="font-family:inherit">' +
+        '<option value="">— 选一个 —</option>' +
+        (s.models || []).map((x) => '<option' + (x === s.modelPinned ? " selected" : "") + ">" + esc(x) + "</option>").join("") +
+        "</select></div>" : "") +
+    '<div style="margin-top:13px;color:var(--dim2);font-size:12px">' +
+      esc((MODELMODE.find((x) => x[0] === mm) || MODELMODE[0])[2]) +
+      (mm === "pinned" && !s.modelPinned ? '<span style="color:var(--warn)"> · 还没挑模型，策略不会生效</span>' : "") +
+    "</div></div>" +
 
-    // 模型映射 —— 官方换名/下线某模型时，在这里改名，不用去改每个客户端
     '<h2 style="border-top:1px solid var(--line2)">模型映射 <span class="grow"></span>' +
     '<span style="color:var(--dim2);font-weight:400">请求的名字 → 上游真正的名字</span></h2>' +
     '<div class="body">' +
@@ -800,7 +951,6 @@ function viewPolicy() {
     "</div></div>";
 }
 
-/* ---------- 视图：接入 ---------- */
 function viewSettings() {
   const s = S || {}, m = s.mint || {};
   const port = s.port || 8899;
@@ -835,8 +985,14 @@ function viewSettings() {
       </div>
 
       <div class="kv" style="margin-top:14px"><span class="k">API Key</span>
-        <span class="v">${(s.keys || []).length} 个</span>
-        <span class="grow"></span><button class="mini" data-set="keyadd">${ICON("plus", 14)}新建一个</button>
+        <div class="copy" style="max-width:280px"><input id="keyin" class="mono" placeholder="留空 = 随机生成一个"
+          style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 ui-monospace,monospace"></div>
+        <button class="mini pri" data-set="keyadd">${ICON("plus", 14)}新建</button>
+        <span class="grow"></span><span class="v">现有 ${(s.keys || []).length} 个</span>
+      </div>
+      <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">
+        想自己定就填一个（只能用字母 / 数字 / <span class="mono">-</span> <span class="mono">_</span>，不能和现有的重复，长短随意）；
+        留空就随机生成。新建后自动复制到剪贴板。
       </div>
       ${(s.keys || []).map((k) =>
         '<div class="kv"><span class="k"></span><div class="copy"><span class="mono">' + esc(k) +
@@ -856,6 +1012,13 @@ function viewSettings() {
         <span class="grow"></span><span class="tag ${m.active ? "ok" : "dim"}">${m.active ? "活跃" : "待命"}</span>
       </div>
       <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">在工具窗口里自己取，不用管。空闲时不取（阿里云按次计费，狂取会被风控）</div>
+
+      <div class="kv" style="margin-top:14px"><span class="k">ZCode 路径</span>
+        <div class="copy" style="max-width:420px"><input id="zpath" class="mono" placeholder="C:\\...\\ZCode.exe" value="${esc(((ACC || {}).zcode_path) || "")}"
+          style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 ui-monospace,monospace"></div>
+        <button class="mini" data-acc-setpath>${ICON("check", 14)}提交</button>
+      </div>
+      <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">浏览器调不出系统文件选择框，这里只能手填路径 —— 挑文件还是回 exe 面板。</div>
     </div>
   </div>
 
@@ -870,21 +1033,17 @@ function viewSettings() {
       <div class="kv"><span class="k">协议</span><span class="v">Anthropic（pi-agent / Claude SDK 那类会自动补 /v1）</span></div>
       <div class="kv" style="margin-top:6px"><span class="k">对话页</span>
         <span class="v"><a href="/" style="color:var(--acc)">${location.origin}/</a> —— 拿来验反代通不通</span></div>
+      <div class="kv" style="margin-top:6px"><span class="k">上游</span><span class="v mono">${esc(s.upstream || "—")}</span></div>
+      <div class="kv"><span class="k">可用模型</span>
+        <div class="chips">${(s.models || []).map((x) => '<span class="chip mono">' + esc(x) + "</span>").join("") || "—"}</div></div>
+      <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">
+        「可用模型」是网关对外开放的白名单，<span class="mono">GET /v1/models</span> 返回的就是这几个（客户端填别的会被挡）。</div>
     </div>
   </div>
 
-  <div class="panel">
-    <h2>服务级信息</h2>
-    <div class="body">
-      <div class="kv"><span class="k">上游</span><span class="v mono">${esc(s.upstream || "—")}</span></div>
-      <div class="kv"><span class="k">可用模型</span>
-        <div class="chips">${(s.models || []).map((x) => '<span class="chip mono">' + esc(x) + "</span>").join("") || "—"}</div></div>
-    </div>
-  </div>
   <div class="sec-hd">策略</div>` + viewPolicy();
 }
 
-/* ---------- 视图：日志 ---------- */
 function lvl(line) {
   if (line.includes(" code=3012") || line.includes("blocked")) return ["bad", "风控"];
   if (line.includes("code=3009") || line.includes(" switch ")) return ["warn", "限流"];
@@ -929,7 +1088,7 @@ const LOGPAGER_STYLE = "display:flex;align-items:center;gap:6px;padding:11px 16p
 function logPagerInner(rel, all) {
   const limit = LOGP.limit, total = LOGP.total, page = LOGP.page;
   const pages = Math.max(1, Math.ceil(total / limit));
-  // 页码：当前页附近 ±2，再补首尾
+
   const nums = [];
   for (let p = Math.max(0, page - 2); p <= Math.min(pages - 1, page + 2); p++) nums.push(p);
   return '<button class="mini" data-logp="0"' + (page === 0 ? " disabled" : "") + '>' + ICON("chevronL", 14) + '首页</button>' +
@@ -946,7 +1105,7 @@ function wireLogPager() {
   }
 }
 function viewLogs() {
-  // 服务端分页：LOGP.lines 是「本页」的 50 条（旧 -> 新），显示时翻过来（新在上）
+
   const { all, rel } = logRel();
   const rows = logRowsHtml(rel);
   const limit = LOGP.limit;
@@ -962,12 +1121,12 @@ function viewLogs() {
           : emptyState("list", "这一页没有日志")) +
     "</div>";
 }
-/* ---------- 局部更新：日志页（每 2 秒刷新，只换 tbody / 统计 / 翻页控件） ---------- */
+
 function patchLogs() {
   if (route !== "logs") return;
   const { all, rel } = logRel();
   const tb = document.querySelector('[data-p="logrows"]');
-  if (!!tb !== (rel.length > 0)) { render(); return; }   // 空/非空切换 = 结构变化
+  if (!!tb !== (rel.length > 0)) { render(); return; }   
   if (tb) tb.innerHTML = logRowsHtml(rel);
   PH("logstats", logStatsHtml(rel));
   const pages = Math.max(1, Math.ceil(LOGP.total / LOGP.limit));
@@ -980,7 +1139,6 @@ function patchLogs() {
   }
 }
 
-/* ---------- 视图：账号（账号池） ---------- */
 function idLabel(a) {
   const id = a.identity || {};
   return id.display_name || id.username || id.email || id.user_id || "—";
@@ -989,7 +1147,7 @@ function accountName(id) {
   const a = (ACC && ACC.accounts || []).find((x) => x.id === id);
   return a ? a.name : id;
 }
-/* ---------- 额度条 / 汇总 ---------- */
+
 function fmtTok(n) {
   if (n == null) return "—";
   if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + "M";
@@ -1004,7 +1162,7 @@ function pctUsed(it) {
   }
   return null;
 }
-// 条形宽度画「剩余」比例（直观：条越短越该省着用）。tip 非空时挂条上做 hover 详情。
+
 function qbarHtml(used, tip) {
   const cls = used == null ? "" : used >= 90 ? " danger" : used >= 70 ? " warn" : "";
   const rem = used == null ? 100 : 100 - used;
@@ -1012,11 +1170,7 @@ function qbarHtml(used, tip) {
   const tt = tip ? ' title="' + esc(tip) + '"' : "";
   return '<span class="qbar' + cls + '"' + tt + '><i style="width:' + rem + '%"></i></span><span class="qpct">' + txt + "</span>";
 }
-/* 同一个模型可能被多个套餐/entitlement 各自授予（items 里 source_key 各不相同），于是 name 会重复好几条。
-   byModel 按模型合并成一条，口径对齐 exe 面板的 quotaSummary()：
-   先按 (模型 + source_key) 去重（同源取窗口更紧的那条），再按模型累加 remaining / total / used，
-   percent_used 累加成 pctSum/n —— 合并后的百分比由 pctSum/n 重算，不沿用某一条的原值。
-   period_end 取**最早**的那个：最早过期的先失效，那才是真正的约束。 */
+
 function quotaSrcKey(it) {
   const s = String((it && it.source_key) || "").trim();
   if (s) return s;
@@ -1030,14 +1184,12 @@ function quotaWinRank(it) {
   if (w === "monthly") return 20;
   return 10;
 }
-/* 同号内按 (模型 + source_key) 去重：同一套餐授予的同一模型只算一次；同源出现多条时取
-   「窗口更紧」的那条。口径与 exe main.js quotaSummary() 里的 bySource 完全一致。
-   号卡片合并、顶部到期分档都用它，保证两处不各算各的。 */
+
 function dedupItems(items) {
   const best = new Map();
   for (const it of (items || [])) {
     const name = String(it.name || "?").trim() || "?";
-    const k = name + " " + quotaSrcKey(it);
+    const k = name + "\u0000" + quotaSrcKey(it);
     const prev = best.get(k);
     if (!prev || quotaWinRank(it) > quotaWinRank(prev)) best.set(k, it);
   }
@@ -1058,7 +1210,7 @@ function byModel(items) {
   }
   return [...out.values()].sort((a, b) => (b.total || 0) - (a.total || 0));
 }
-// 合并后一个模型一行，横向排：模型名 | 剩余条 | 百分比 | 剩余/总量 | 到期
+
 function qrowHtml(g) {
   const used = g.n ? g.pctSum / g.n : (g.total > 0 && g.remaining != null ? (1 - g.remaining / g.total) * 100 : null);
   const nums = g.total != null && g.remaining != null ? fmtTok(g.remaining) + " / " + fmtTok(g.total) : "";
@@ -1071,7 +1223,7 @@ function qrowHtml(g) {
     '<span class="qn" title="' + esc(tip) + '">' + esc(nums || "—") + "</span>" +
     '<span class="qr" title="' + esc(end) + '">' + esc(end) + "</span></div>";
 }
-// 一个号的额度明细：套餐头 + 每个模型一条（同名已合并）
+
 function quotaRowsHtml(q) {
   if (!q || q.is_empty) return '<div style="color:var(--dim2);font-size:12px;padding:6px 0">没有额度数据</div>';
   let html = "";
@@ -1098,9 +1250,7 @@ function accountBodyHtml(a) {
   if (q && q.data) return quotaRowsHtml(q.data);
   return '<div style="color:var(--dim2);font-size:12px;padding:6px 0">还没查询额度</div>';
 }
-// 账号状态标签（给筛选条用）：一行一个号，卡片根上挂 data-name / data-st。
-// 「已冻结 / 已用尽」取自 /proxy/status 的 channels[].frozen（渠道 id 就是账号 id）；
-// 「有额度 / 无额度」取自账号页自己查的 QMAP。只读现有数据，不动任何接口。
+
 function acctStatusKeys(a) {
   const qe = QMAP[a.id];
   const q = qe && qe.data;
@@ -1122,14 +1272,10 @@ function accountCard(a) {
     '<div data-p="acard-body" data-id="' + esc(a.id) + '">' + body + "</div>" +
     '<div class="acct-acts">' +
       '<button class="mini" data-act-quota="' + esc(a.id) + '">' + ICON("search", 14) + "查询额度</button>" +
-      // 这个按钮**只查不领**（结果出到下面的面板，领取是面板里套餐那一行的事）。
-      // 文案别写成「查资格/领取」—— 那样看着像一步，跟实际行为不符。
+
       '<button class="mini" data-act-claim="' + esc(a.id) + '">' + ICON("gift", 14) + "查可领套餐</button>" +
       (a.is_active ? "" : '<button class="mini" data-act-switch="' + esc(a.id) + '">' + ICON("swap", 14) + "切换</button>") +
-      // 「用当前登录刷新」= update_account_from_live：把客户端**当前登录的那个账号**的新凭据同步回池子。
-      // 它和「保存登录」(capture_current)是**互补**的：后者只能新建（已存在就报「已保存过」），
-      // 而客户端重新登录/授权后要刷新旧号的 token，只能靠这个。
-      // ⚠ **只在「当前登录就是这个号」时才可点**：否则会拿当前登录那个号的凭据覆盖掉你点的这个。
+
       (a.is_active
         ? '<button class="mini" data-act-upd="' + esc(a.id) + '" title="客户端现在登的就是这个号 —— 把它的新凭据同步回池子">' +
             ICON("download", 14) + "用当前登录刷新</button>"
@@ -1139,10 +1285,7 @@ function accountCard(a) {
       '<button class="mini danger" data-act-del="' + esc(a.id) + '">' + ICON("trash", 14) + "删除</button>" +
     "</div></div>";
 }
-/* ---------- 环形仪表盘（移植自 exe 面板 gaugeSvg） ----------
-   几何原样照搬：CX=50 CY=50 R=36 START=135 SWEEP=270，28 根刻度（每 3 根加粗）。
-   唯一改动：描边不写死十六进制，改成 currentColor 的线性渐变（两条 stop 走 CSS），
-   这样深浅两套主题共用同一段几何。 */
+
 let __gaugeSeq = 0;
 function gaugeSvg(pct, big, sub, cls, pctLabel) {
   cls = cls || ""; pctLabel = pctLabel || "";
@@ -1181,24 +1324,22 @@ function gaugeSvg(pct, big, sub, cls, pctLabel) {
     (sub ? '<text class="g-sub" x="' + CX + '" y="70" text-anchor="middle">' + esc(sub) + "</text>" : "") +
     "</svg>";
 }
-// 顶部汇总：所有已查号的总剩余 / 总量 / 覆盖几个号 / 按模型聚合
+
 function quotaSummaryHtml() {
   return '<div class="panel" data-p="acct-summary">' + quotaSummaryInner() + "</div>";
 }
 function quotaSummaryInner() {
-  let accounts = 0, total = 0, remaining = 0, hasTotal = false;
+  let accounts = 0, empty = 0, failed = 0, loading = 0;
   const byModel = new Map();
   for (const id of Object.keys(QMAP)) {
     const q = QMAP[id];
-    if (!q || !q.data || q.data.is_empty) continue;
-    const d = q.data;
+    if (!q) continue;
+    if (q.error) { failed++; continue; }
+    if (!q.data) { loading++; continue; }        
+    if (q.data.is_empty) { empty++; continue; }
     accounts++;
-    if (d.total != null) {
-      total += d.total;
-      hasTotal = true;
-      if (d.remaining != null) remaining += d.remaining;
-    }
-    for (const it of d.items || []) {
+
+    for (const it of dedupItems(q.data.items)) {
       const k = it.name || "?";
       const m = byModel.get(k) || { total: 0, remaining: 0, hasT: false };
       if (it.total != null) {
@@ -1210,10 +1351,18 @@ function quotaSummaryInner() {
     }
   }
   const all = (ACC && ACC.accounts || []).length;
-  // —— 环形仪表盘：大环=总体剩余占比，右侧每模型一小环（最多 8 个，横向可滚）——
-  // 数据仍来自上面的 QMAP 聚合，字段处理没动，只换渲染。
-  const sumPct = hasTotal && total > 0 ? (remaining / total) * 100 : 100;
-  const bigCls = " big" + (hasTotal && total > 0 ? (sumPct <= 10 ? " danger" : sumPct <= 30 ? " warn" : "") : "");
+  const pending = Math.max(0, all - Object.keys(QMAP).length);
+
+  const snap = (v) => (v >= 1e6 ? Math.round(v / 1e5) * 1e5 : v >= 1e3 ? Math.round(v / 1e3) * 1e3 : Math.round(v));
+  let sumTotal = 0, sumRemain = 0;
+  for (const m of byModel.values()) {
+    if (!m.hasT) continue;
+    sumTotal += snap(m.total);
+    sumRemain += snap(m.remaining || 0);
+  }
+  const hasTotal = sumTotal > 0;
+  const sumPct = hasTotal ? (sumRemain / sumTotal) * 100 : 100;
+  const bigCls = " big" + (hasTotal ? (sumPct <= 10 ? " danger" : sumPct <= 30 ? " warn" : "") : "");
   const models = [...byModel.entries()]
     .sort((a, b) => (b[1].total || 0) - (a[1].total || 0))
     .slice(0, 8);
@@ -1226,14 +1375,20 @@ function quotaSummaryInner() {
         m.hasT ? Math.round(pct) + "%" : "") +
       '<span class="mgauge-name" title="' + esc(k) + '">' + esc(k) + "</span></div>";
   }).join("");
+
+  const why = [];
+  if (empty) why.push("空号 " + empty);
+  if (failed) why.push('<span style="color:var(--err)">失败 ' + failed + "</span>");
+  if (loading) why.push("查询中 " + loading);
+  if (pending) why.push("待查 " + pending);
   const meta = "已查额度账号 " + accounts + " / " + all + " · 涉及模型 " + byModel.size;
-  const hint = accounts ? "" :
+  const hint = accounts ? (why.length ? "未计入：" + why.join(" · ") : "全部号都有额度") :
     '<div class="dash-hero-hint">点账号卡片上的「查询额度」，或上面的「查询全部额度」</div>';
   return "<h2>额度汇总 <span class=\"grow\"></span><span style=\"color:var(--dim2);font-weight:400\">" +
     (QLOAD.running ? "查询中 " + QLOAD.done + "/" + QLOAD.total : "所有号合计") + "</span></h2>" +
     '<div class="body"><div class="dash">' +
       '<div class="dash-hero">' +
-        gaugeSvg(sumPct, hasTotal ? fmtTok(remaining) : "—", hasTotal ? fmtTok(total) : "", bigCls,
+        gaugeSvg(sumPct, hasTotal ? fmtTok(sumRemain) : "—", hasTotal ? fmtTok(sumTotal) : "", bigCls,
           hasTotal ? Math.round(sumPct) + "%" : "") +
         '<div class="dash-hero-txt">' +
           '<div class="dash-hero-lb">剩余 / 总量</div>' +
@@ -1244,16 +1399,22 @@ function quotaSummaryInner() {
         (mgauges || '<div class="dash-empty">' +
           (accounts ? "已查账号没有模型额度明细" : "还没有额度数据") + "</div>") +
       "</div>" +
+      '<div class="acct-mid">' +
+        '<div class="kv"><span class="k">账号数</span><span class="v">' + all + " 个</span></div>" +
+        '<div class="kv"><span class="k">ZCode</span><span class="v" style="color:' +
+          ((ACC && ACC.zcode_running) ? "var(--ok)" : "var(--dim)") + '">' +
+          ((ACC && ACC.zcode_running) ? "运行中" : "未运行") + "</span></div>" +
+        '<div class="acct-mid-act">' +
+          '<button class="mini" data-acc-launch>' + ICON("play", 14) + "启动</button>" +
+          '<button class="mini danger" data-acc-kill>' + ICON("close", 14) + "关闭</button>" +
+        "</div>" +
+      "</div>" +
+      '<div class="due-card"><div class="due-hd">今天到期' +
+        '<span class="grow"></span><span class="due-sub">按剩余 token</span></div>' +
+        '<div data-p="due-today">' + dueTodayInner() + "</div></div>" +
     "</div></div>";
 }
-/* ---------- 到期聚合（仪表盘右侧「今天到期」小卡用） ----------
-   数据只从 QMAP（每个已查额度号的 items）聚合，不碰任何 fetch / 接口。
-   每号先 dedupItems 去重（与 byModel、exe quotaSummary 同一口径，避免同套餐重复计），
-   再把每条按自己的 period_end 落档：已过期 / 今天到期 / 3 天内 / 更久；
-   小卡只取「今天到期」这一档（expBucketOf 返回 1）。
-   档内按模型累加 **remaining（剩余 token）** —— 要的是「还能用、且今天失效」的量，
-   所以取剩余而不是总量（总量放 hover title）。
-   日期按本地整天差算（0=今天）。基数 = 已查额度且非空的号。 */
+
 const EXP_BUCKETS = [
   { label: "已过期", cls: "bad" },
   { label: "今天到期", cls: "hot" },
@@ -1268,7 +1429,7 @@ function expDayDiff(end) {
   return Math.round((t - new Date(n.getFullYear(), n.getMonth(), n.getDate())) / 864e5);
 }
 function expBucketOf(days) {
-  if (days == null) return 3;   // 没标到期时间：不紧急
+  if (days == null) return 3;   
   if (days < 0) return 0;
   if (days === 0) return 1;
   if (days <= 3) return 2;
@@ -1294,7 +1455,7 @@ function expiryBuckets() {
   }
   return { acc, accounts };
 }
-/* 仪表盘右侧小卡：只渲染「今天到期」这一档（expBucketOf 里下标 1）。没数据时给一句灰字空状态。 */
+
 function dueTodayInner() {
   const { acc, accounts } = expiryBuckets();
   const ms = [...acc[1].entries()].sort((a, b) => (b[1].remaining || 0) - (a[1].remaining || 0));
@@ -1308,7 +1469,7 @@ function dueTodayInner() {
   return '<div class="due-list">' + rows + "</div>" +
     '<div class="due-sum">' + ms.length + " 个模型 · " + esc(fmtTok(sum)) + "</div>";
 }
-/* ---------- 局部更新：账号页的额度（查询额度不再整页重画） ---------- */
+
 function patchAcct() {
   if (route !== "acct" || !ACC) return;
   for (const el of document.querySelectorAll('[data-p="acard-body"]')) {
@@ -1316,28 +1477,41 @@ function patchAcct() {
     if (a) {
       el.innerHTML = accountBodyHtml(a);
       const card = el.closest(".acct-card");
-      if (card) card.dataset.st = acctStatusKeys(a);   // 额度到货 → 状态标签跟着更新
+      if (card) card.dataset.st = acctStatusKeys(a);   
     }
   }
   PH("acct-summary", quotaSummaryInner());
-  applyAcctFilter();   // 额度到货后可能改变归类（如进入「有额度」），但用户选的筛选保持不变
+  applyAcctFilter();   
 }
-/* 账号页筛选：只改 .acct-card 的 display（不重画 → <select>/<input> 不丢焦点）。
-   状态 + 名字两个条件与关系；无卡片时也算一次，把「显示数」写回。 */
+
 function applyAcctFilter() {
-  const cards = document.querySelectorAll(".acct-card");
+  const cards = [...document.querySelectorAll(".acct-card")];
   const q = String(acctSearch || "").trim().toLowerCase();
-  let shown = 0;
+  const matched = new Set();
   for (const c of cards) {
     const st = " " + (c.dataset.st || "") + " ";
     const okSt = acctFilter === "all" || st.indexOf(" " + acctFilter + " ") >= 0;
     const okNm = !q || (c.dataset.name || "").indexOf(q) >= 0;
-    const show = okSt && okNm;
-    c.style.display = show ? "" : "none";
-    if (show) shown++;
+    if (okSt && okNm) matched.add(c);
+  }
+
+  const pages = Math.max(1, Math.ceil(matched.size / ACCT_PAGE_SIZE));
+  if (acctPage > pages) acctPage = pages;
+  if (acctPage < 1) acctPage = 1;
+  let i = 0;
+  for (const c of cards) {
+    const inPage = matched.has(c) && i >= (acctPage - 1) * ACCT_PAGE_SIZE && i < acctPage * ACCT_PAGE_SIZE;
+    if (matched.has(c)) i++;
+    c.style.display = inPage ? "" : "none";
   }
   const n = document.querySelector('[data-p="acct-count"]');
-  if (n) n.textContent = shown === cards.length ? cards.length + " 个" : shown + " / " + cards.length + " 个";
+  if (n) n.textContent = matched.size === cards.length ? cards.length + " 个" : matched.size + " / " + cards.length + " 个";
+  const pg = document.querySelector('[data-p="acct-page"]');
+  if (pg) pg.textContent = "第 " + acctPage + " / " + pages + " 页";
+  for (const b of document.querySelectorAll("[data-acc-pg]")) {
+    const d = Number(b.dataset.accPg);
+    b.disabled = d < 0 ? acctPage <= 1 : acctPage >= pages;
+  }
 }
 function viewAcct() {
   const st = ACC || {};
@@ -1345,17 +1519,18 @@ function viewAcct() {
   const grid = list.map(accountCard).join("");
   const statCards = `
   <div class="cards">
-    <div class="card"><div class="lb">账号数</div><div class="n">${list.length}</div>
-      <div class="foot">${st.active_account_id ? "有当前登录" : "当前没有匹配的登录账号"}</div></div>
-    <div class="card"><div class="lb">ZCode 进程</div>
-      <div class="n" style="color:${st.zcode_running ? "var(--ok)" : "var(--dim)"}">${st.zcode_running ? "运行中" : "未运行"}</div>
-      <div class="foot">启动 / 关闭在下面</div></div>
     <div class="card"><div class="lb">ZCode 路径</div>
       <div class="n" style="font-size:14px">${st.zcode_path_ok ? "有效" : "无效"}</div>
       <div class="foot mono" style="word-break:break-all">${esc(st.zcode_path || "—")}</div></div>
     <div class="card"><div class="lb">存储目录</div>
       <div class="n mono" style="font-size:13px">…</div>
       <div class="foot mono" style="word-break:break-all">${esc(st.store_dir || "—")}</div></div>
+    <div class="card"><div class="lb">额度缓存</div>
+      <div class="n" data-p="acct-qcache">${S ? (S.quotaAccounts || 0) : 0}<small>/ ${list.length}</small></div>
+      <div class="foot">${S && S.lastRefresh ? esc(S.lastRefresh) : "还没刷过"}</div></div>
+    <div class="card"><div class="lb">验证码池</div>
+      <div class="n">${S ? ((S.mint || {}).pool || 0) : 0}</div>
+      <div class="foot">近 10 分钟 ${S ? num((S.mint || {}).mints10min || 0) : 0}</div></div>
   </div>`;
   return quotaSummaryHtml() + statCards + `
   <div class="panel"><h2>账号池 <span class="grow"></span>
@@ -1363,8 +1538,6 @@ function viewAcct() {
     <div class="body" style="display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">
       <button class="mini" data-acc-reload>${ICON("refresh", 14)}刷新</button>
       <button class="mini" data-acc-capture>${ICON("plus", 14)}从当前登录新建</button>
-      <button class="mini" data-acc-launch>${ICON("play", 14)}启动 ZCode</button>
-      <button class="mini danger" data-acc-kill>${ICON("close", 14)}关闭 ZCode</button>
       <button class="mini" data-acc-live-quota>${ICON("refresh", 14)}刷新额度缓存</button>
       <button class="mini pri" data-acc-all-quota>${ICON("search", 14)}查询全部额度</button>
       <span class="grow"></span>
@@ -1380,22 +1553,29 @@ function viewAcct() {
         style="flex:1 1 180px;max-width:260px">
       <span class="fcount" data-p="acct-count"></span>
       <span class="grow"></span>
-      <span style="color:var(--dim2);font-size:11.5px">一行一个号</span>
+      <button class="mini" data-acc-pg="-1">‹ 上一页</button>
+      <span class="fcount mono" data-p="acct-page"></span>
+      <button class="mini" data-acc-pg="1">下一页 ›</button>
+      <span style="color:var(--dim2);font-size:11.5px">一行一个号 · 每页 ${ACCT_PAGE_SIZE}</span>
     </div>
     ${grid ? '<div class="body acct-grid">' + grid + "</div>" : emptyState("users", "账号库是空的 —— 登录 ZCode 后点「从当前登录新建」")}
-    <div class="body" style="border-top:1px solid var(--line2)">
-      <div class="kv"><span class="k">ZCode 路径</span>
-        <div class="copy" style="max-width:420px"><input id="zpath" class="mono" placeholder="C:\\...\\ZCode.exe" value="${esc(st.zcode_path || "")}"
-          style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 ui-monospace,monospace"></div>
-        <button class="mini" data-acc-setpath>${ICON("check", 14)}提交</button></div>
-      <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">浏览器调不出系统文件选择框，这里只能手填路径 —— 挑文件还是回 exe 面板。</div>
-    </div>
-  </div>
-
-  <div class="panel"><h2>可领套餐 / 领取 <span class="grow"></span>
-    <span style="color:var(--dim2);font-weight:400">${ACC_DETAIL && ACC_DETAIL.id ? esc(accountName(ACC_DETAIL.id)) : "点账号卡片的「查可领套餐」"}</span></h2>
-    <div class="body">${claimPanelHtml()}</div>
   </div>`;
+}
+
+function renderClaimModal() {
+  const box = $("cmbox"), wrap = $("claim");
+  if (!box || !wrap) return;
+  const open = !!(ACC_DETAIL && ACC_DETAIL.id);
+  wrap.hidden = !open;
+  document.body.style.overflow = open ? "hidden" : "";
+  box.innerHTML = open
+    ? '<div class="mhd"><b>可领套餐 / 领取</b><span class="grow"></span>' +
+      '<span class="msub">' + esc(accountName(ACC_DETAIL.id) || ACC_DETAIL.id) + "</span>" +
+      '<button class="ibtn" id="cmclose" title="关闭">✕</button></div>' +
+      '<div class="mbody">' + claimPanelHtml() + "</div>"
+    : "";
+  const cls = $("cmclose");
+  if (cls) cls.onclick = () => { ACC_DETAIL = null; renderClaimModal(); };
 }
 function claimPanelHtml() {
   const d = ACC_DETAIL;
@@ -1420,7 +1600,6 @@ function claimPanelHtml() {
     '<div style="color:var(--dim2);font-size:11.5px;margin-top:10px">点「领取」走无感验证 —— 正常几秒自动完成、不弹窗；若被风控拦，exe 会弹出验证码窗让你滑一下，本条会显示结果。</div>';
 }
 
-/* ---------- 视图：邮箱（邮箱库） ---------- */
 function mailStatus(a) {
   const map = { verified: ["ok", "已验证"], failed: ["bad", "失败"], invalid: ["bad", "需重授权"], new: ["dim", "未验证"] };
   return map[a.status] || ["dim", a.status || "未验证"];
@@ -1470,9 +1649,6 @@ function viewMail() {
   </div>`;
 }
 
-/* ---------- 视图：邮箱管理（看原文 + 链接） ---------- */
-// 默认给邮件套一层 CSP：禁掉一切外部资源（尤其远程图片 = 跟踪像素）。
-// 用户点「显示图片」才放开 img-src。sandbox="" 另外把脚本整个禁掉。
 function mailCsp(allowImg) {
   const img = allowImg ? "https: http: data:" : "'none'";
   return '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src ' + img +
@@ -1497,7 +1673,7 @@ function mailDetailHtml(m) {
     "> 显示远程图片（默认不加载，防跟踪像素）</label>";
   let frame;
   if (m.html) {
-    // 原文照渲染，HTML 整体转义进 srcdoc；sandbox="" 禁脚本，CSP 禁外部资源
+
     frame = '<iframe class="mframe" sandbox="" srcdoc="' + escSrcdoc(mailCsp(MBOX.showImg) + m.html) + '"></iframe>';
   } else {
     frame = '<div class="mbox-text">' + esc(m.text || m.preview || "（正文为空）") + "</div>";
@@ -1539,8 +1715,6 @@ function viewMbox() {
   </div>`;
 }
 
-/* ---------- 数据加载 / 交互：账号 / 邮箱 / 邮箱管理 ---------- */
-// 新管理接口统一走这个：POST 返回 {error} 或非 2xx 都当失败抛出
 async function api(url, body) {
   const opt = body === undefined
     ? { cache: "no-store" }
@@ -1551,14 +1725,13 @@ async function api(url, body) {
   if (!r.ok || (d && d.error)) throw new Error((d && d.error) || ("HTTP " + r.status));
   return d;
 }
-// quiet=true 表示这是轮询触发的：数据指纹没变就别重建 DOM（不闪）
+
 async function loadAccounts(quiet) {
   try { ACC = await api("/proxy/accounts"); }
   catch (e) { ACC = { accounts: [], error: String(e.message || e) }; }
   if (route === "acct") { if (quiet) { if (accSig() !== ACC_SIG) render(); } else render(); }
   else if (route === "dash") patchDash();
-  // 账号列表到货后自动查额度：仪表盘的「今天到期」小卡依赖它，不查就是空的
-  // （maybeAutoQuota 自己有一次性的 QAUTO 守卫，重复调用安全；没账号数据时它会早退）
+
   maybeAutoQuota();
 }
 async function loadMail(quiet) {
@@ -1566,7 +1739,7 @@ async function loadMail(quiet) {
   catch (e) { MAIL = { accounts: [], error: String(e.message || e) }; }
   const live = new Set(((MAIL && MAIL.accounts) || []).map((a) => a.email));
   for (const e of [...MAIL_SEL]) if (!live.has(e)) MAIL_SEL.delete(e);
-  // mbox 页也要重绘：下拉框的选项来自 MAIL，直接进 #mbox 时得等它加载完再回填选中项
+
   if (route === "mail") { if (quiet) { if (mailSig() !== MAIL_SIG) render(); } else render(); }
   else if (route === "mbox") render();
 }
@@ -1591,7 +1764,7 @@ async function accDetail(kind, id) {
   } catch (e) { ACC_DETAIL = { kind, id, error: String(e.message || e) }; }
   if (route === "acct") render();
 }
-/* ---------- 额度：单号 / 全部 + 汇总（走 patchAcct，只改对应的卡片和汇总） ---------- */
+
 async function loadQuota(id, quiet) {
   if (!quiet) QMAP[id] = { loading: true };
   if (route === "acct") patchAcct();
@@ -1606,20 +1779,20 @@ async function loadAllQuotas() {
   QLOAD.running = true; QLOAD.done = 0; QLOAD.total = list.length;
   if (route === "acct") patchAcct();
   const queue = list.slice();
-  // 并发 3 —— 上游额度接口不便宜，别一次全打出去
+
   const worker = async () => {
     while (queue.length) {
       const a = queue.shift();
       await loadQuota(a.id, true);
       QLOAD.done++;
-      if (route === "acct") patchAcct();   // 只更新汇总进度条，不重建
+      if (route === "acct") patchAcct();   
     }
   };
   await Promise.all([worker(), worker(), worker()]);
   QLOAD.running = false;
   if (route === "acct") patchAcct();
 }
-// 首次进账号页自动查一轮；号特别多才不自动（免得把上游打爆），留「查询全部额度」手动点
+
 function maybeAutoQuota() {
   if (QAUTO) return;
   const list = (ACC && ACC.accounts) || [];
@@ -1630,11 +1803,9 @@ function maybeAutoQuota() {
   QAUTO = true;
   loadAllQuotas();
 }
-/* ---------- 领取：无感（隐藏窗自动过）+ 轮询结果 ---------- */
-// 网页点「领取」默认走无感：exe 那侧把验证码窗 auto 隐藏，阿里云 traceless 正常自己过，
-// 用户什么都不用做；被风控拦时 captcha.js 会把窗显出来让人滑。这里只等最终结果。
+
 const CLAIM_POLL_MS = 1500;
-const CLAIM_POLL_MAX = 40; // 40 * 1.5s ≈ 60s 上限
+const CLAIM_POLL_MAX = 40; 
 async function claimSubmit(id, planId, planName) {
   CLAIM = { id, plan: planName || planId, running: true, msg: "正在领取…无感验证中，通常几秒就好，不用管", ok: null, startedAt: Math.floor(Date.now() / 1000) - 2 };
   if (route === "acct") render();
@@ -1676,9 +1847,9 @@ async function loadLogs() {
     if (LOGP.page > pages - 1) { LOGP.page = pages - 1; LOGP.loading = false; return loadLogs(); }
   } catch (e) {}
   LOGP.loading = false;
-  if (route === "logs") patchLogs();   // 只换 tbody / 统计 / 翻页控件，不整页重建
+  if (route === "logs") patchLogs();   
 }
-// 仪表盘三张卡 + 日志分布都要聚合数据
+
 async function loadStats() {
   try {
     const [s, l] = await Promise.all([
@@ -1687,7 +1858,7 @@ async function loadStats() {
     ]);
     STATS = s; LOGS = l.lines || [];
   } catch (e) {}
-  if (route === "dash") patchDash();   // 聚合到货后补一次局部更新
+  if (route === "dash") patchDash();   
 }
 function wireAcct() {
   const rl = document.querySelector("[data-acc-reload]"); if (rl) rl.onclick = () => loadAccounts();
@@ -1702,6 +1873,10 @@ function wireAcct() {
   if (kl) kl.onclick = async () => { if (!confirm("关掉 ZCode 进程？")) return; try { await api("/proxy/zcode/kill", {}); } catch (e) { alert(String(e.message || e)); } };
   const lq = document.querySelector("[data-acc-live-quota]");
   if (lq) lq.onclick = () => { lq.disabled = true; lq.textContent = "刷新中…"; post("/proxy/refresh-quota", {}); };
+  for (const b of document.querySelectorAll("[data-acc-pg]")) {
+    b.onclick = () => { acctPage += Number(b.dataset.accPg) || 0; applyAcctFilter(); ($("view") || {}).scrollTop = 0; };
+  }
+
   const sp = document.querySelector("[data-acc-setpath]");
   if (sp) sp.onclick = async () => {
     const p = ($("zpath") || {}).value || "";
@@ -1734,11 +1909,11 @@ function wireAcct() {
   };
   const aq = document.querySelector("[data-acc-all-quota]");
   if (aq) aq.onclick = () => { QAUTO = true; loadAllQuotas(); };
-  // 筛选：状态 <select> + 名字 <input>，都只做前端显示/隐藏（render 后重新绑定）
+
   const af = $("acctfilter");
-  if (af) af.onchange = () => { acctFilter = af.value; applyAcctFilter(); };
+  if (af) af.onchange = () => { acctFilter = af.value; acctPage = 1; applyAcctFilter(); };
   const sq = $("acctsearch");
-  if (sq) sq.oninput = () => { acctSearch = sq.value; applyAcctFilter(); };
+  if (sq) sq.oninput = () => { acctSearch = sq.value; acctPage = 1; applyAcctFilter(); };
   applyAcctFilter();
 }
 function wireMail() {
@@ -1809,91 +1984,234 @@ function wireMbox() {
   };
 }
 
-/* ---------- 视图：用量 ---------- */
 function usageFail(r) {
   if (r.status >= 400) return true;
   const c = String(r.code || "").trim();
   return c !== "" && c !== "200" && c !== "0";
 }
+
+function abbr(n) {
+  const a = Math.abs(Number(n) || 0);
+  const f = (v, u) => [v.toFixed(a >= 1e10 ? 0 : 1).replace(/\.0$/, ""), u];
+  if (a >= 1e9) return f(n / 1e9, "B");
+  if (a >= 1e6) return f(n / 1e6, "M");
+  if (a >= 1e4) return f(n / 1e3, "K");
+  return [num(n), ""];
+}
+
+function miniBars(vals, color) {
+  const mx = Math.max(1, ...vals);
+  const last = Math.max(1, vals.length - 1);
+  return '<div class="mini12">' + vals.map((v, i) =>
+    '<i style="height:' + Math.max(3, Math.round((v / mx) * 100)) + "%;background:" + color +
+    ";opacity:" + (0.28 + 0.66 * (i / last)).toFixed(2) + '"></i>').join("") + "</div>";
+}
+
+function segBar(frac, color, segs) {
+  const n = segs || 24;
+  let k = Math.round((Number(frac) || 0) * n);
+  if (k < 0) k = 0;
+  if (k > n) k = n;
+  let h = "";
+  for (let i = 0; i < n; i++) h += "<i" + (i < k ? ' style="background:' + color + '"' : "") + "></i>";
+  return '<div class="seg">' + h + "</div>";
+}
+
+function tokCard(icon, label, o, cap) {
+  const f = (v) => { const [n, u] = abbr(v || 0); return n + (u || ""); };
+  const total = (o.in || 0) + (o.out || 0) + (o.cache || 0);
+  const [tn, tu] = abbr(total);
+  return '<div class="stat"><div class="top"><span class="ico">' + ICON(icon, 15) + "</span>" + esc(label) + "</div>" +
+    '<div class="big">' + tn + (tu ? "<u>" + tu + "</u>" : "") + "</div>" +
+    '<div class="tk-sum">输入: ' + f(o.in) + " / 输出: " + f(o.out) + " / 缓存: " + f(o.cache) + "</div>" +
+    '<div class="cap">' + cap + "</div></div>";
+}
+
+function tokCell(r) {
+  const i = r["in"] || 0, o = r.out || 0;
+
+  const hasC = r.cache != null;
+  const c = hasC ? Number(r.cache) || 0 : 0;
+  const fc = hasC ? num(c) : "—";
+  const tot = i + o + c;
+  const f = (v) => num(v);
+  return '<div class="tk">' +
+    '<span class="l"><span class="in"><i class="ar">↓</i>' + f(i) + '</span>' +
+      '<span class="out"><i class="ar">↑</i>' + f(o) + "</span></span>" +
+    '<span class="l ca"><i class="ar">⛁</i>' + fc +
+      '<span class="tipbox" tabindex="0"><span>i</span><span class="pop">' +
+        "<h5>Token 明细</h5>" +
+        '<div class="r"><span>输入 Token</span><b>' + f(i) + "</b></div>" +
+        '<div class="r"><span>输出 Token</span><b>' + f(o) + "</b></div>" +
+        '<div class="r"><span>缓存读取 Token</span><b>' + fc + "</b></div>" +
+        '<div class="hr"></div>' +
+        '<div class="r tot"><span>总 Token</span><b>' + (hasC ? f(tot) : "—") + "</b></div>" +
+        (hasC ? "" : '<div class="r" style="color:var(--warn)">这条是加字段前的老记录</div>') +
+      "</span></span></span></div>";
+}
 function usageRowsHtml() {
-  const rows = (USAGE && USAGE.rows) || [];
+  const all = (USAGE && USAGE.rows) || [];
+  const pages = Math.max(1, Math.ceil(all.length / UPAGE.size));
+  if (UPAGE.page > pages - 1) UPAGE.page = pages - 1;
+  if (UPAGE.page < 0) UPAGE.page = 0;
+  const rows = all.slice(UPAGE.page * UPAGE.size, UPAGE.page * UPAGE.size + UPAGE.size);
   return rows.length ? rows.map((r) => {
     const bad = usageFail(r);
-    const label = r.status + (r.code ? " · " + r.code : "");
-    const st = bad ? ["bad", label] : ["ok", String(r.status)];
     const sameUp = !r.up || String(r.up).toLowerCase() === String(r.model || "").toLowerCase();
     const mdl = esc(r.model || "—") + (sameUp ? "" : ' <span style="color:var(--dim2)">→</span> <span class="mono">' + esc(r.up) + "</span>");
     return "<tr>" +
       '<td class="mono" style="color:var(--dim2);white-space:nowrap">' + (r.t ? hhmmss(r.t) : "—") + "</td>" +
       '<td class="mono">' + esc(r.acct || "—") + "</td>" +
       "<td>" + mdl + (r.mapped ? ' <span class="tag info" title="请求名→上游名">映射</span>' : "") + "</td>" +
-      '<td class="mono num">' + (r.ttfb == null ? "—" : r.ttfb) + " / " + num(r.ms || 0) + " ms</td>" +
-      '<td class="mono num">' + num(r["in"] || 0) + " / " + num(r.out || 0) + "</td>" +
-      "<td>" + (r.stream ? '<span class="tag dim">流式</span> ' : "") +
-        '<span class="tag ' + st[0] + '">' + esc(st[1]) + "</span>" +
+      "<td>" + tokCell(r) + "</td>" +
+      '<td class="mono num" style="color:var(--dim2)">' + (r.ttfb == null ? "—" : num(r.ttfb)) + "</td>" +
+      '<td class="mono num" style="color:var(--dim2)">' + (r.ms ? (r.ms / 1000).toFixed(1) + "s" : "—") + "</td>" +
+      '<td class="num">' + '<span class="pill ' + (bad ? "bad" : "ok") + '" title="' + esc(String(r.status) + (r.code ? " · " + r.code : "")) + '">' +
+        esc(bad ? String(r.status) : "完成") + "</span>" +
+        (r.stream ? ' <span class="tag dim">流式</span>' : "") +
         (r.tries > 1 ? ' <span class="tag dim">候选' + r.tries + "</span>" : "") + "</td>" +
       "</tr>";
-  }).join("") : '<tr><td colspan="6">' + emptyState("usage", "还没有用量记录 —— 往 /v1/messages 发几发就有了") + "</td></tr>";
+  }).join("") : '<tr><td colspan="7">' + emptyState("usage", "还没有用量记录 —— 往 /v1/messages 发几发就有了") + "</td></tr>";
+}
+function usagePagerHtml() {
+  const all = (USAGE && USAGE.rows) || [];
+  const pages = Math.max(1, Math.ceil(all.length / UPAGE.size));
+  const p = Math.min(Math.max(0, UPAGE.page), pages - 1);
+  const from = all.length ? p * UPAGE.size + 1 : 0;
+  const to = Math.min(all.length, (p + 1) * UPAGE.size);
+  return '<div class="pager"><span class="mono">显示 ' + from + "–" + to + " / " + num(all.length) + " 条</span>" +
+    "<span>每页</span><select class=\"sel\" id=\"upsize\">" +
+      [10, 25, 50, 100].map((n) => '<option value="' + n + '"' + (n === UPAGE.size ? " selected" : "") + ">" + n + "</option>").join("") +
+    "</select>" +
+    '<span class="grow"></span>' +
+    '<button class="mini" id="upnew"' + (p <= 0 ? " disabled" : "") + ">" + ICON("chevronL", 13) + "较新</button>" +
+    '<span class="mono">' + (p + 1) + " / " + pages + "</span>" +
+    '<button class="mini" id="upold"' + (p >= pages - 1 ? " disabled" : "") + ">较早" + ICON("chevronR", 13) + "</button></div>";
+}
+function usageFilterHtml() {
+  const s = S || {};
+  const st = (USAGE && USAGE.stats) || {};
+  const opts = (sel, list) => '<option value="">全部</option>' + list.map((x) =>
+    '<option value="' + esc(x) + '"' + (x === sel ? " selected" : "") + ">" + esc(x) + "</option>").join("");
+  const accts = [...new Set([].concat(s.accounts || [], (st.byAcct || []).map((x) => x.k)))].filter((x) => x && x !== "-").sort();
+  const models = [...new Set([].concat(s.models || [], (st.byModel || []).map((x) => x.k)))].filter(Boolean).sort();
+  return '<div class="body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">' +
+    '<span style="color:var(--dim2);font-size:11.5px">账号</span><select class="sel" id="ufacct">' + opts(UFILTER.acct, accts) + "</select>" +
+    '<span style="color:var(--dim2);font-size:11.5px">模型</span><select class="sel" id="ufmodel">' + opts(UFILTER.model, models) + "</select>" +
+
+    ((st.byKey || []).length ? '<span style="color:var(--dim2);font-size:11.5px">Key</span><select class="sel" id="ufkey">' +
+      '<option value="">全部</option>' + (st.byKey || []).filter((x) => x.k).map((x) =>
+        '<option value="' + esc(x.k) + '"' + (x.k === UFILTER.key ? " selected" : "") + ">" +
+        esc(x.k === "-" ? "未记录（旧数据）" : x.k) + " · " + num(x.n) + "</option>").join("") + "</select>" : "") +
+    '<select class="sel" id="ufstat"><option value=""' + (UFILTER.fail ? "" : " selected") + ">全部状态</option>" +
+      '<option value="0"' + (UFILTER.fail ? " selected" : "") + ">只看失败</option></select>" +
+    '<span class="grow"></span><button class="mini" id="urefresh">' + ICON("refresh", 14) + "刷新</button></div>";
+}
+
+function usageTopHtml() {
+  const u = USAGE || {}, st = u.stats || {};
+  const rows = u.rows || [];
+  const t = st.total || { n: 0, in: 0, out: 0, fail: 0, avgTtfb: null, avgMs: null };
+  const okN = Math.max(0, (t.n || 0) - (t.fail || 0));
+  const rate = t.n ? okN / t.n : 0;
+  const ttfbShare = t.avgMs ? Math.min(1, (t.avgTtfb || 0) / t.avgMs) : 0;
+  const totTok = (t.in || 0) + (t.out || 0) + (t.cache || 0);
+  const cacheShare = totTok ? (t.cache || 0) / totTok : 0;
+  const scope = rows.length ? "明细载入 " + num(rows.length) + " 条" : "明细未载入";
+  const cards = '<div class="secstat" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-bottom:var(--gap)">' +
+    tokCard("usage", "今日 Token", st.today || {}, "今天 " + num((st.today || {}).n || 0) + " 次请求" +
+      ((st.today || {}).fail ? " · 失败 " + num(st.today.fail) : "")) +
+    tokCard("dash", "累计 Token", t, "共 " + num(t.n || 0) + " 次请求" +
+      (t.fail ? " · 失败 " + num(t.fail) : "") + " · " + esc(scope)) +
+    "</div>";
+
+  const secstat = '<div class="secstat" style="margin-bottom:var(--gap)">' +
+    [["平均首字节", [t.avgTtfb == null ? "—" : num(t.avgTtfb), "ms"]],
+     ["平均总时长", t.avgMs == null ? ["—", ""] : [(t.avgMs / 1000).toFixed(1), "s"]],
+     ["平均每发 token", [(t.n ? Math.round(totTok / t.n) : 0).toLocaleString("en-US"), ""]],
+     ["成功率", [(rate * 100).toFixed(rate >= 0.9995 ? 0 : 1), "%"]]].map(([k, v]) =>
+      '<div class="s"><div class="k">' + esc(k) + '</div><div class="v">' + v[0] + (v[1] ? "<u>" + esc(v[1]) + "</u>" : "") + "</div></div>").join("") +
+    "</div>";
+
+  const compose = '<div class="panel"><div class="body" style="padding:6px 16px 10px">' +
+    [["成功率", rate, "var(--ok)", num(okN) + " 成功 / " + num(t.fail || 0) + " 失败"],
+     ["缓存命中占比", cacheShare, "var(--acc)", num(t.cache || 0) + " 缓存 / " + num(totTok) + " 总 token"],
+     ["首字节占比", ttfbShare, "var(--warn)", "首字节 " + (t.avgTtfb == null ? "—" : num(t.avgTtfb) + " ms") + " ÷ 整发 " + (t.avgMs == null ? "—" : (t.avgMs / 1000).toFixed(1) + " s")]].map(([nm, f, c, sub]) =>
+      '<div class="lim"><span class="nm">' + esc(nm) + "</span>" + segBar(f, c, 24) +
+      '<span class="pc">' + (f * 100).toFixed(1) + '%</span><span class="sub">' + esc(sub) + "</span></div>").join("") +
+    "</div></div>";
+
+  const lists = '<div class="grid3">' + [["按模型", st.byModel], ["按账号", st.byAcct], ["按 Key", st.byKey]].map(([title, arr]) => {
+    const list = arr || [];
+    const mx = Math.max(1, ...list.map((x) => (x.out || 0) + (x.in || 0) + (x.cache || 0)));
+    const body = list.length ? list.slice(0, 8).map((x) => {
+      const tk = (x.out || 0) + (x.in || 0) + (x.cache || 0);
+      const f = (v) => { const [n, u] = abbr(v || 0); return n + (u || ""); };
+      return '<div class="lim"><span class="nm mono" title="' + esc(x.k) + '">' +
+        esc(x.k === "-" ? "未记录" : x.k || "—") + "</span>" +
+        segBar(tk / mx, "var(--acc)", 20) +
+        '<span class="pc mono">' + num(x.n) + "</span>" +
+        '<span class="sub">' + f(x.in) + " in · " + f(x.out) + " out · " + f(x.cache) + " 缓存</span></div>";
+    }).join("") : '<div class="blank">还没有数据</div>';
+    return '<div class="panel"><h2>' + esc(title) + ' <span class="grow"></span>' +
+      '<span style="color:var(--dim2);font-weight:400;font-size:11.5px">格长 = token 量 · 数字 = 请求数</span></h2>' +
+      '<div class="body" style="padding:6px 16px 10px">' + body + "</div></div>";
+  }).join("") + "</div>";
+
+  return '<div class="sec"><b>概览</b></div>' + cards +
+    '<div class="sec"><b>构成</b></div>' + secstat + compose +
+    '<div class="sec" style="margin-top:var(--gap)"><b>分组</b></div>' + lists;
 }
 function viewUsage() {
   const u = USAGE || {};
-  const rows = u.rows || [];
-  const t = (u.stats && u.stats.total) || { n: 0, in: 0, out: 0, fail: 0, avgTtfb: null, avgMs: null };
-  const cards = `
-  <div class="cards">
-    <div class="card"><div class="lb">总请求</div><div class="n" data-p="dp-u-req">${num(t.n)}</div>
-      <div class="foot" data-p="dp-u-req-foot">${t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功"}</div></div>
-    <div class="card"><div class="lb">输入 token</div><div class="n" data-p="dp-u-in">${num(t.in)}</div><div class="foot">请求侧</div></div>
-    <div class="card"><div class="lb">输出 token</div><div class="n" data-p="dp-u-out">${num(t.out)}</div><div class="foot">生成侧</div></div>
-    <div class="card"><div class="lb">平均 TTFB</div><div class="n" data-p="dp-u-ttfb">${t.avgTtfb == null ? "—" : num(t.avgTtfb)}<small>ms</small></div><div class="foot">首字节延迟</div></div>
-    <div class="card"><div class="lb">平均总时长</div><div class="n" data-p="dp-u-ms">${t.avgMs == null ? "—" : (t.avgMs / 1000).toFixed(1)}<small>s</small></div><div class="foot">整发</div></div>
-  </div>`;
-  const body = usageRowsHtml();
-  return cards + '<div class="panel"><h2>请求明细 <span class="grow"></span>' +
-    '<span data-p="usage-count" style="color:var(--dim2);font-weight:400">' + rows.length + " / " + num(u.total || 0) + " 条</span></h2>" +
-    '<div class="body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">' +
-    '<div class="copy" style="max-width:170px"><input id="ufacct" placeholder="按账号筛选" value="' + esc(UFILTER.acct) +
-      '" style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 inherit"></div>' +
-    '<div class="copy" style="max-width:170px"><input id="ufmodel" placeholder="按模型筛选" value="' + esc(UFILTER.model) +
-      '" style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 inherit"></div>' +
-    '<label style="color:var(--dim);font-size:12px;cursor:pointer"><input type="checkbox" id="uffail" ' +
-      (UFILTER.fail ? "checked" : "") + ' style="vertical-align:-1px"> 只看失败</label>' +
-    '<span class="grow"></span><button class="mini" id="urefresh">' + ICON("refresh", 14) + '刷新</button></div>' +
-    '<div class="scroll"><table><thead><tr><th>时间</th><th>账号</th><th>模型 → 上游</th><th class="num">TTFB / 总时长</th>' +
-    '<th class="num">in / out</th><th>状态</th></tr></thead><tbody data-p="usageRows">' + body + "</tbody></table></div>" +
+  const note = u.total > (u.rows || []).length
+    ? "只载入最近 " + num((u.rows || []).length) + " 条（共 " + num(u.total) + " 条）—— 用上面的筛子缩小范围能翻到更早的。"
+    : "";
+  return '<div data-p="usageTop">' + usageTopHtml() + "</div>" +
+    '<div class="panel"><h2>请求明细 <span class="grow"></span>' +
+    '<span data-p="usage-at" style="color:var(--dim2);font-weight:400;margin-right:10px"></span>' +
+    '<span data-p="usage-count" style="color:var(--dim2);font-weight:400">' + (u.rows || []).length + " / " + num(u.total || 0) + " 条</span></h2>" +
+    '<div data-p="usageFilters">' + usageFilterHtml() + "</div>" +
+    '<div class="scroll full"><table><thead><tr><th>时间</th><th>账号</th><th>模型 → 上游</th>' +
+    '<th>Token</th><th class="num">首字节</th><th class="num">总时长</th><th class="num">状态</th>' +
+    '</tr></thead><tbody data-p="usageRows">' + usageRowsHtml() + "</tbody></table></div>" +
+    '<div data-p="usagePager">' + usagePagerHtml() + "</div>" +
     '<div class="foot-note">一行 = 一次转发。结构化用量，和「日志」页的原始流水不是一回事。' +
+    (note ? '<br><span style="color:var(--warn)">' + esc(note) + "</span>" : "") +
     "数据在 <span class=\"mono\">usage.jsonl</span>，超 32MB 自动轮转。</div></div>";
 }
-/* ---------- 局部更新：用量页（KPI 直接改；明细行变了才换 tbody，并保住滚动位置） ---------- */
-function patchUsage() {
+
+function patchUsage(force) {
   if (route !== "usage" || !USAGE) return;
   const u = USAGE;
-  const t = (u.stats && u.stats.total) || { n: 0, in: 0, out: 0, fail: 0, avgTtfb: null, avgMs: null };
-  PT("dp-u-req", num(t.n));
-  PH("dp-u-req-foot", t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功");
-  PT("dp-u-in", num(t.in));
-  PT("dp-u-out", num(t.out));
-  PH("dp-u-ttfb", (t.avgTtfb == null ? "—" : num(t.avgTtfb)) + "<small>ms</small>");
-  PH("dp-u-ms", (t.avgMs == null ? "—" : (t.avgMs / 1000).toFixed(1)) + "<small>s</small>");
-  PT("usage-count", ((u.rows || []).length) + " / " + num(u.total || 0) + " 条");
-  const tb = document.querySelector('[data-p="usageRows"]');
   const rows = u.rows || [];
-  if (!tb) return;
-  // 空/非空切换 = 结构变化，交回 render()
-  if ((document.querySelectorAll('[data-p="usageRows"] tr td[colspan]').length > 0) !== (rows.length === 0)) { render(); return; }
+  PT("usage-at", "更新于 " + hhmmss(Date.now()));
+  PT("usage-count", rows.length + " / " + num(u.total || 0) + " 条");
   const sig = sigUsage();
-  if (sig === USAGE_SIG) return;
+  if (!force && sig === USAGE_SIG) return;
   USAGE_SIG = sig;
-  const sc = tb.closest(".scroll");
-  const top = sc ? sc.scrollTop : 0;
-  tb.innerHTML = usageRowsHtml();
-  if (sc) sc.scrollTop = top;
+  PH("usageTop", usageTopHtml());
+  const tb = document.querySelector('[data-p="usageRows"]');
+  if (tb) {
+    const sc = tb.closest(".scroll");
+    const top = sc ? sc.scrollTop : 0;
+    tb.innerHTML = usageRowsHtml();
+    if (sc) sc.scrollTop = top;
+  }
+  if (pagerSig() !== PAGER_SIG) {
+    PAGER_SIG = pagerSig();
+    const pg = document.querySelector('[data-p="usagePager"]');
+    if (pg) pg.innerHTML = usagePagerHtml();
+  }
+  wirePager();
 }
 
-async function loadUsage() {
-  const q = new URLSearchParams({ limit: "200" });
+async function loadUsage(force) {
+
+  const q = new URLSearchParams({ limit: "1000" });
   if (UFILTER.acct.trim()) q.set("acct", UFILTER.acct.trim());
   if (UFILTER.model.trim()) q.set("model", UFILTER.model.trim());
+  if (UFILTER.key.trim()) q.set("key", UFILTER.key.trim());
   if (UFILTER.fail) q.set("ok", "0");
   try {
     const [d, s] = await Promise.all([
@@ -1901,23 +2219,57 @@ async function loadUsage() {
       fetch("/proxy/usage/stats", { cache: "no-store" }).then((r) => r.json()),
     ]);
     USAGE = { rows: d.rows || [], total: d.total || 0, stats: s || {} };
-    if (route === "usage") patchUsage();
+    if (route !== "usage") return;
+
+    const os = usageOptsSig();
+    if (os !== USAGE_OPTS_SIG) { USAGE_OPTS_SIG = os; render(); } else patchUsage(force);
   } catch (e) { rep("usage-throw", (e && (e.stack || e.message)) || e); }
+}
+
+function wirePager() {
+  const size = $("upsize");
+  if (size) size.onchange = () => { UPAGE.size = Number(size.value) || 25; UPAGE.page = 0; turnPage(0); };
+  const nw = $("upnew");
+  if (nw) nw.onclick = () => turnPage(UPAGE.page - 1);
+  const od = $("upold");
+  if (od) od.onclick = () => turnPage(UPAGE.page + 1);
+}
+function turnPage(p) {
+  const total = ((USAGE && USAGE.rows) || []).length;
+  const pages = Math.max(1, Math.ceil(total / UPAGE.size));
+  UPAGE.page = Math.min(Math.max(0, p), pages - 1);
+  const tb = document.querySelector('[data-p="usageRows"]');
+  if (tb) tb.innerHTML = usageRowsHtml();
+  const pg = document.querySelector('[data-p="usagePager"]');
+  if (pg) { pg.innerHTML = usagePagerHtml(); wirePager(); }
+  PAGER_SIG = pagerSig();
+  const sc = tb && tb.closest(".scroll");
+  if (sc) sc.scrollTop = 0;
 }
 
 function wireUsage() {
   const bind = (id, key) => {
     const el = $(id);
-    if (el) el.onchange = () => { UFILTER[key] = el.type === "checkbox" ? el.checked : el.value; loadUsage(); };
+    if (el) el.onchange = () => { UFILTER[key] = el.value; UPAGE.page = 0; loadUsage(true); };
   };
   bind("ufacct", "acct");
   bind("ufmodel", "model");
-  bind("uffail", "fail");
+  bind("ufkey", "key");
+  bind("ufstat", "fail");
   const rf = $("urefresh");
-  if (rf) rf.onclick = () => { rf.disabled = true; rf.textContent = "…"; loadUsage().then(() => { rf.disabled = false; rf.innerHTML = ICON("refresh", 14) + "刷新"; }); };
+  if (rf) rf.onclick = async () => {
+    rf.disabled = true;
+    rf.classList.add("spin");
+    const old = rf.innerHTML;
+    rf.innerHTML = ICON("refresh", 14) + "刷新中…";
+    await loadUsage(true);
+    rf.classList.remove("spin");
+    rf.disabled = false;
+    rf.innerHTML = old;
+  };
+  wirePager();
 }
 
-/* ---------- 视图：管理 ---------- */
 function viewAdmin() {
   const s = S || {}, chans = s.channels || [];
   const h = (c) => c.health || {};
@@ -1974,7 +2326,6 @@ function viewAdmin() {
   </div></div>`;
 }
 
-/* ---------- 局部更新分发：轮询只走这里，不重建 DOM ---------- */
 function patch() {
   if (route === "dash") patchDash();
   else if (route === "chan") patchChan();
@@ -1982,7 +2333,6 @@ function patch() {
   else if (route === "usage") patchUsage();
 }
 
-/* ---------- 渲染 ---------- */
 function view() {
   return route === "dash" ? viewDash() : route === "chan" ? viewChan()
     : route === "policy" ? viewPolicy() : route === "usage" ? viewUsage()
@@ -1990,31 +2340,41 @@ function view() {
     : route === "admin" ? viewAdmin() : route === "keys" ? viewSettings() : viewLogs();
 }
 function render() {
+
+  if (route !== "acct" && ACC_DETAIL) ACC_DETAIL = null;
   $("title").textContent = ROUTES[route];
   $("stitle").textContent = route === "dash" ? "本机号池 · 只监听 127.0.0.1" : "";
   for (const a of $("nav").children) a.className = a.dataset.r === route ? "on" : "";
-  // 整页重建只在：切路由 / 用户主动操作 / 结构真变了时发生。轮询走 patch()，不进这里。
+
   $("view").innerHTML = view();
   if (route === "dash") drawSpark();
-  if (route === "usage") { wireUsage(); USAGE_SIG = sigUsage(); if (!USAGE) loadUsage(); }
+  if (route === "usage") { wireUsage(); USAGE_SIG = sigUsage(); PAGER_SIG = pagerSig(); if (!USAGE) loadUsage(); }
   if (route === "acct") { wireAcct(); if (!ACC) loadAccounts(); maybeAutoQuota(); }
-  // 仪表盘也要账号列表 —— 右侧「今天到期」小卡靠它；loadAccounts 回来后会自己触发查额度
+
   if (route === "dash" && !ACC) loadAccounts();
   if (route === "mail") { wireMail(); if (!MAIL) loadMail(); }
   if (route === "mbox") { wireMbox(); if (!MBOX.data && !MBOX.loading && MBOX.email) loadMbox(); }
   if (route === "logs" && !LOGP.lines.length && !LOGP.loading) loadLogs();
-  // 记下这次渲染对应的数据指纹：轮询时指纹没变就一个 DOM 都不动
+
   ACC_SIG = accSig(); MAIL_SIG = mailSig(); PATCH_SIG = dataSig();
+  renderClaimModal();
 
   for (const b of document.querySelectorAll("[data-act]")) {
     b.onclick = () => {
-      const act = b.dataset.act, v = b.dataset.v, sel = $("pinsel");
-      post(act === "mode" ? "/proxy/model-mode" : "/proxy/policy",
-           act === "mode" ? { mode: v } : { policy: v, pinned: sel && sel.value ? sel.value : null });
+      const act = b.dataset.act, v = b.dataset.v, sel = $("pinsel"), mp = $("modepin");
+      if (act === "mode") {
+
+        const pin = v === "pinned" ? (mp && mp.value ? mp.value : (S || {}).modelPinned || "") : "";
+        post("/proxy/model-mode", { mode: v, pinned: pin });
+      } else {
+        post("/proxy/policy", { policy: v, pinned: sel && sel.value ? sel.value : null });
+      }
     };
   }
   const sel = $("pinsel");
   if (sel) sel.onchange = () => post("/proxy/policy", { policy: "pinned", pinned: sel.value });
+  const mp = $("modepin");
+  if (mp) mp.onchange = () => post("/proxy/model-mode", { mode: "pinned", pinned: mp.value });
   for (const b of document.querySelectorAll("[data-f]")) {
     b.onclick = () => { chanFilter = b.dataset.f; render(); };
   }
@@ -2039,7 +2399,7 @@ function render() {
       if (k === "external") post("/proxy/external", { on: b.dataset.v === "1" });
       else if (k === "port") post("/proxy/port", { port: Number(($("portin") || {}).value || 0) });
       else if (k === "refresh-quota") { b.disabled = true; b.textContent = "刷新中…"; post("/proxy/refresh-quota", {}); }
-      else if (k === "keyadd") { b.disabled = true; b.textContent = "…"; post("/proxy/key-add", {}); }
+      else if (k === "keyadd") { b.disabled = true; b.textContent = "…"; post("/proxy/key-add", { key: (($("keyin") || {}).value || "").trim() }); }
     };
   }
   for (const b of document.querySelectorAll("[data-probe]")) {
@@ -2091,30 +2451,31 @@ async function tick() {
     if (tickN === 1) rep("status-ok", "keys=" + Object.keys(S).length);
     HIST.push(S.tps || 0);
     while (HIST.length > 60) HIST.shift();
-    // 顶栏 / 侧栏的状态点：直接改节点（本来就不重建 DOM）
+
     $("sdot2").className = "dot" + (S.external ? " on" : "");
     $("sfoot").textContent = (S.external ? "运行中" : "已关闭") + " · :" + S.port;
     $("ldot").className = "dot" + (S.generating ? " on live" : S.external ? " on" : "");
     $("ltext").textContent = S.generating ? "正在生成" : S.external ? "空闲" : "已停止";
     $("live").className = "pill" + (S.generating ? " live" : "");
     if (tickN === 1) rep("pre-render", "ok");
-    // ⚠ 核心：轮询只做**局部更新**，绝不 `innerHTML = view()`。
-    // 鼠标底下的按钮不会被销毁重建，hover 动画就不会每 2 秒重播（不跳）。
+
     patch();
-    // 轮询式拉数据。isEditing() 守卫**留住**：正在操作表单（下拉/输入）时先不刷，
-    // 免得把用户手里的控件换掉（「重画换掉 <select> 导致选不中」那个老 bug）。
+
     if (!isEditing()) {
-      // 日志页：本页每 2 秒刷一次（服务端分页）→ 只换 tbody
+
       if (route === "logs") loadLogs();
-      // 仪表盘卡片和日志分布：别每 2 秒都算
+
       if (route === "dash" && (tickN % 5 === 1 || !STATS)) loadStats();
-      // 用量页：状态轮询顺带刷一下（服务端筛选，跟着 UFILTER 走）
-      if (route === "usage" && tickN % 3 === 1) loadUsage();
-      // 账号 / 邮箱：数据指纹没变就不重建（结构变了才 render）
+
       if (route === "acct" && tickN % 5 === 1) loadAccounts(true);
       if (route === "mail" && tickN % 5 === 1) loadMail(true);
-      // 其余页面（策略 / 管理 / 设置 / 邮箱管理）：指纹没变就一个 DOM 都不动
+
       if (!PATCHED[route] && dataSig() !== PATCH_SIG) render();
+    }
+
+    if (route === "usage" && !USAGE_BUSY) {
+      USAGE_BUSY = true;
+      loadUsage().finally(() => { USAGE_BUSY = false; });
     }
     if (tickN === 1) rep("post-render", "ok");
   } catch (e) {
@@ -2122,7 +2483,7 @@ async function tick() {
     if (++fails > 2) { $("ltext").textContent = "连不上"; $("sfoot").textContent = "连不上"; }
   }
 }
-render();   // 首屏先画一版（S 还是空的没关系，第一次 tick 会补上真实数据）
+render();   
 tick();
 setInterval(tick, 2000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });

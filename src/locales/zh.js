@@ -7,7 +7,6 @@ export const zh = {
   "common.loadFail": "加载失败：{e}",
   "common.listSep": "、",
 
-
   "prov.title": "添加账号 · 选择登录方式",
   "prov.sub": "选一个登录站点，在弹窗里手动登录（账号密码 / 手机 / 扫码）。<br>登录完成后自动存入账号库，<b>不影响当前正在使用的登录</b>",
   "prov.bigmodel": "BigModel（智谱开放平台）",
@@ -295,8 +294,6 @@ export const zh = {
   "p.howtoHint": "配 base_url 的客户端（Anthropic SDK 那类）填上面的地址就行，它会自己补 /v1/messages；要写完整接口地址的就填 {url}/v1/messages —— 加不加 /v1 都能识别。",
   "p.on": "对外接口已打开",
   "p.off": "对外接口已关闭",
-
-
 
   "reg.title": "注册助手",
   "reg.waiting": "等待登录窗口就绪…",

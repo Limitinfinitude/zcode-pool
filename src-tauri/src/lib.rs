@@ -259,8 +259,6 @@ async fn claim_start(
     claim_start_inner(&app, id, plan_id, auto.unwrap_or(false))
 }
 
-/// exe 命令和网页（反代）共用的一份领取入口：预检套餐 → 记下 pending → 拉起滑块窗。
-/// 反代线程拿 AppHandle 就是为了调这个，验证码流程一行没重写。
 pub fn proxy_claim_start(
     app: &AppHandle,
     id: String,
@@ -299,8 +297,6 @@ fn claim_start_inner(
     Ok(json!({ "account": acc.name, "plan": display, "captcha": true }))
 }
 
-/// 最近一次领取结果（captcha 窗提交后落这里）。网页轮询 `/proxy/account/claim-result` 取。
-/// 存一份是为了让「网页点领取 → exe 弹窗 → 滑完」这条链路有回音，不然网页不知道成没成。
 static LAST_CLAIM: Mutex<Option<Value>> = Mutex::new(None);
 
 fn last_claim_guard() -> std::sync::MutexGuard<'static, Option<Value>> {
@@ -318,7 +314,6 @@ fn record_claim_result(payload: &Value) {
     *last_claim_guard() = Some(json!({ "at": store::now_ts(), "result": payload }));
 }
 
-/// 网页改了账号后让 exe 面板重画一遍（面板监听 state-changed 刷新）
 pub fn emit_state_changed(app: &AppHandle) {
     let _ = app.emit("state-changed", ());
 }
@@ -1236,9 +1231,7 @@ fn open_captcha_window(app: &AppHandle, auto: bool) -> Result<(), String> {
         }
         return Ok(());
     }
-    // WebView2 按 user data folder 复用 environment：第二个 webview 若 additionalBrowserArguments
-    // 和第一个（主窗，见 tauri.conf.json）不一致，CreateCoreWebView2EnvironmentWithOptions 会
-    // 直接失败（ERROR_INVALID_STATE），窗口句柄在但 webview 建不出来。所以这里必须和主窗完全一致。
+
     const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows";
     let win = tauri::WebviewWindowBuilder::new(
         app,
@@ -1267,8 +1260,6 @@ fn open_captcha_window(app: &AppHandle, auto: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// 无感失败（风控拦住）时由 captcha 窗自己调：把隐藏的验证码窗显出来让人点。
-/// 无感通过时根本不会走到这，所以正常情况下全程不弹窗。
 #[tauri::command]
 async fn captcha_show(app: AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("captcha") {
@@ -1549,16 +1540,15 @@ async fn relay_policy(policy: String, pinned: Option<String>) -> Result<Value, S
 }
 
 #[tauri::command]
-async fn relay_model_mode(mode: String) -> Result<Value, String> {
-    relay().set_model_mode(mode)?;
-    Ok(relay().status(&Paths::detect()))
+async fn relay_model_mode(mode: String, pinned: Option<String>) -> Result<Value, String> {
+    let paths = Paths::detect();
+    relay().set_model_mode(&paths, mode, pinned)?;
+    Ok(relay().status(&paths))
 }
 
-/// 对外提供接口（反代）。开启时顺便把中继起起来 —— 对外和对客户端共用同一个监听端口。
 #[tauri::command]
 async fn relay_external(on: bool) -> Result<Value, String> {
-    // 逻辑和网页的 POST /proxy/external **共用** Gateway::set_external_and_run，
-    // 避免 exe 和网页两套开关行为不一致
+
     relay().set_external_and_run(&Paths::detect(), on)
 }
 
@@ -1646,17 +1636,14 @@ pub fn run() {
             if let Ok(data_dir) = app.path().app_local_data_dir() {
                 flowlog::init(&data_dir);
             }
-            // 反代开关是持久的：上次开着就把服务一并拉起来。
-            // 隐藏的取码窗不用在这里建（窗口还没就绪），前端的 refresh() 会补。
+
             let paths = Paths::detect();
-            // 把 AppHandle 交给反代：网页触发「领取」要弹 exe 的滑块窗、改账号要刷托盘，
-            // 都靠它。必须在 start() 之前塞，否则先起来的服务拿不到。
+
             relay().set_app(app.handle().clone());
-            // 恢复持久化的服务级设置。**必须显式恢复** —— 只存不读等于没存：
-            // 之前监听地址/密钥/模型映射都是存了但重启就丢。
+
             relay().restore_persisted(&paths);
             if store::load_settings(&paths).relay_external == Some(true) {
-                // 用记住的端口（改端口要重启才生效，所以这里必须读回来）
+
                 let want_port = store::load_settings(&paths)
                     .relay_port
                     .unwrap_or(gateway::DEFAULT_PORT);

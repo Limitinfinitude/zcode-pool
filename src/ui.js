@@ -30,7 +30,6 @@ export function toast(msg, kind = "ok", detail = "") {
   setTimeout(() => el.remove(), detail ? 5200 : 3200);
 }
 
-// [click="expr"] / [keydown="expr"] / [change="expr"] 事件代理
 function runAttr(expr, event, el) {
   try {
     const open = expr.indexOf("(");
@@ -78,7 +77,6 @@ export function installDelegation() {
   }, true);
 }
 
-/** 通用确认框。kind: plain / danger。 */
 export function openConfirmModal(m) {
   document.querySelector(".ov.confirm")?.remove();
   const kind = m.kind || "plain";
@@ -116,7 +114,6 @@ export function openConfirmModal(m) {
   (m.focusNo || kind === "danger" ? no : yes).focus();
 }
 
-/** 粘一行文本的小弹窗（用于「更新凭据」）。onSubmit(value) 返回 Promise。 */
 export function openLineModal(m) {
   document.querySelector(".ov.line")?.remove();
   const ov = document.createElement("div");
@@ -160,10 +157,6 @@ export function openLineModal(m) {
   setTimeout(() => ta.focus(), 30);
 }
 
-/**
- * 添加账号：选一个登录站点，在登录窗里**手动**登录。
- * 不做任何自动化 —— 自动注册 / 验证在「邮箱库」那边的批量自动验证里。
- */
 export function openAddAccountModal(m) {
   document.querySelector(".ov.add")?.remove();
   const providers = m.providers || [];
@@ -201,7 +194,7 @@ export function openAddAccountModal(m) {
   ov.querySelectorAll(".opt").forEach((b) => {
     b.addEventListener("click", () => {
       close();
-      m.onStart?.(b.dataset.id, "observe"); // 一律手动：只开登录窗，不自动化
+      m.onStart?.(b.dataset.id, "observe"); 
     });
   });
   ov.querySelector(".opt")?.focus();

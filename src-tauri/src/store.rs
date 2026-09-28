@@ -103,22 +103,34 @@ pub struct Settings {
     pub language: Option<String>,
     #[serde(default)]
     pub auto_claim: Option<bool>,
-    /// 反代开关。持久化 —— 不然每次重启工具都要人去点一下
+
     #[serde(default)]
     pub relay_external: Option<bool>,
-    /// 监听地址。`127.0.0.1` = 只本机；`0.0.0.0` = 局域网可访问
+
     #[serde(default)]
     pub relay_bind: Option<String>,
-    /// 对外接口的密钥。绑非回环地址时**必须非空**（见 Gateway::set_bind）
+
     #[serde(default)]
     pub relay_keys: Option<Vec<String>>,
-    /// 监听端口。持久化 —— 改端口要重启才生效，不记住的话重启就回默认端口了
+
     #[serde(default)]
     pub relay_port: Option<u16>,
-    /// 模型映射：客户端请求的模型名 -> 上游真正的模型名。
-    /// 官方换名/下线某模型时用，不用去改每个客户端
+
     #[serde(default)]
     pub model_map: Option<std::collections::BTreeMap<String, String>>,
+
+    #[serde(default)]
+    pub relay_model_mode: Option<String>,
+
+    #[serde(default)]
+    pub relay_model_pinned: Option<String>,
+}
+
+pub fn set_relay_model_policy(paths: &Paths, mode: &str, pinned: Option<&str>) -> Result<(), String> {
+    let mut s = load_settings(paths);
+    s.relay_model_mode = Some(mode.to_string());
+    s.relay_model_pinned = pinned.map(|x| x.to_string());
+    save_settings(paths, &s)
 }
 
 impl Settings {
@@ -365,9 +377,7 @@ pub fn launch_zcode(path: &str) -> Result<(), String> {
 }
 
 pub fn open_url(url: &str) -> Result<(), String> {
-    // 只放行 https，外加**本机回环**的 http —— 中继的控制台/对话页是自己起的 http 服务，
-    // 原来一刀切只认 https，导致「打开控制台」直接报「仅支持 https 链接」。
-    // 除回环外仍然不放行任意 http，护栏本意不变。
+
     let loopback = url.starts_with("http://127.0.0.1:")
         || url.starts_with("http://localhost:")
         || url.starts_with("http://[::1]:");
@@ -399,14 +409,12 @@ pub fn open_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 存端口
 pub fn set_relay_port(paths: &Paths, port: u16) -> Result<(), String> {
     let mut s = load_settings(paths);
     s.relay_port = Some(port);
     save_settings(paths, &s)
 }
 
-/// 存模型映射
 pub fn set_model_map(
     paths: &Paths,
     m: &std::collections::BTreeMap<String, String>,
@@ -416,21 +424,18 @@ pub fn set_model_map(
     save_settings(paths, &s)
 }
 
-/// 存监听地址
 pub fn set_relay_bind(paths: &Paths, bind: &str) -> Result<(), String> {
     let mut s = load_settings(paths);
     s.relay_bind = Some(bind.to_string());
     save_settings(paths, &s)
 }
 
-/// 存密钥列表
 pub fn set_relay_keys(paths: &Paths, keys: &[String]) -> Result<(), String> {
     let mut s = load_settings(paths);
     s.relay_keys = Some(keys.to_vec());
     save_settings(paths, &s)
 }
 
-/// 记住反代开关（服务本身是否监听由 state 决定，这里只记意图）
 pub fn set_relay_external(paths: &Paths, on: bool) -> Result<(), String> {
     let mut s = load_settings(paths);
     if s.relay_external == Some(on) {
@@ -1033,7 +1038,6 @@ fn ensure_virtual_device_mid_locked(paths: &Paths, id: &str) -> Result<String, S
     Ok(m)
 }
 
-
 pub fn write_live_device_mid(paths: &Paths, mid: &str) -> Result<(), String> {
     let mut v: Value = fs::read_to_string(paths.live_telemetry())
         .ok()
@@ -1414,31 +1418,49 @@ pub fn import_values(paths: &Paths, files: &[(String, Value)]) -> Result<ImportR
     Ok(report)
 }
 
+pub fn identity_same(a: &Option<zcrypto::Identity>, b: &Option<zcrypto::Identity>) -> bool {
+    let (Some(a), Some(b)) = (a, b) else {
+        return false;
+    };
+    let eq = |x: &Option<String>, y: &Option<String>| match (x, y) {
+        (Some(x), Some(y)) => !x.trim().is_empty() && x.eq_ignore_ascii_case(y),
+        _ => false,
+    };
+    eq(&a.user_id, &b.user_id) || eq(&a.email, &b.email) || eq(&a.username, &b.username)
+}
+
 pub fn get_state(paths: &Paths) -> Result<AppState, String> {
     let accounts = list_accounts(paths)?;
     let live = read_live(paths)?;
     let live_hash = live.as_ref().map(canonical_hash);
     let live_logged_in = live.as_ref().map(is_logged_in).unwrap_or(false);
-    let active_account_id = live_hash
-        .as_ref()
-        .and_then(|h| accounts.iter().find(|a| &a.hash == h).map(|a| a.id.clone()));
     let live_identity = live
         .as_ref()
         .filter(|_| live_logged_in)
         .map(|v| zcrypto::account_identity(v, &paths.home));
+    let identities: Vec<zcrypto::Identity> = accounts
+        .iter()
+        .map(|a| zcrypto::account_identity(&a.credentials, &paths.home))
+        .collect();
+    let same = |i: usize| {
+        live_hash.as_deref() == Some(accounts[i].hash.as_str())
+            || identity_same(&live_identity, &Some(identities[i].clone()))
+    };
+    let active_account_id = (0..accounts.len()).find(|i| same(*i)).map(|i| accounts[i].id.clone());
     let (zcode_path, zcode_path_ok) = effective_zcode_path(paths);
     let settings = load_settings(paths);
     let summaries = accounts
         .iter()
-        .map(|a| AccountSummary {
+        .enumerate()
+        .map(|(i, a)| AccountSummary {
             id: a.id.clone(),
             name: a.name.clone(),
             created_at: a.created_at.clone(),
             updated_at: a.updated_at.clone(),
-            is_active: live_hash.as_deref() == Some(a.hash.as_str()),
+            is_active: same(i),
             has_config: a.config.is_some(),
             has_user_info: crate::claim::telemetry_user_id(&paths.home, &a.credentials).is_some(),
-            identity: zcrypto::account_identity(&a.credentials, &paths.home),
+            identity: identities[i].clone(),
         })
         .collect();
     Ok(AppState {

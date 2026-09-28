@@ -23,11 +23,7 @@ let claimAllRunning = false;
 let filter = "";
 let relayRefreshing = false;
 let relay = { running: false, port: 0, served: 0, switched: 0, clientAccount: null, routedAccount: null, routedModel: null, routedTries: null, nextAccount: null, quotaAccounts: 0, quotaTotal: 0, quotaFailed: [], source: "pool", clientQuota: null, deviceMode: "route", blocked: 0, pausedFor: 0, lastRefresh: null, upstream: "", external: false, externalModels: [], mint: { pool: 0, waiters: 0, active: false, mints: 0, mints10min: 0 }, patch: { found: false, applied: false } };
-// 取码靠主窗口里一个「在页面上但看不见」的 iframe，它加载中继自己的 /mint 页。
-// 独立文档、跟中继同源 → 它的 /want-mint、/mint-result 不用 CORS；
-// 也不用第二个 webview（实测：隐藏窗经常只创建不加载页面）。
-// 注意用「屏幕内 + opacity 0」而不是 display:none —— 页面得真的参与布局渲染，
-// 阿里云的 SDK 才初始化得起来。
+
 let mintFrame = null;
 function syncMintFrame(on) {
   if (on && !mintFrame) {
@@ -374,7 +370,6 @@ const actions = {
 
   openSettings() { tab = "settings"; render(); },
 
-
   async relayRefresh() {
     if (relayRefreshing) return;
     relayRefreshing = true;
@@ -401,7 +396,7 @@ const actions = {
   },
   async relayConsole() {
     await guard(async () => {
-      // 服务只在反代开着时监听 —— 顺手把它打开，免得控制台点开是个死页
+
       if (!relay.external) relay = await invoke("relay_external", { on: true });
       const port = relay.port || relay.defaultPort || 8899;
       render();
@@ -1275,7 +1270,7 @@ function settingsView(s) {
     </div>`;
 }
 
-/** 反代页：把号池对外提供成一个 Anthropic 接口，给本机其它应用用。 */
+
 function proxyView() {
   const name = (id) => (id ? accountName(id) : t("r.none"));
   const mint = relay.mint || {};

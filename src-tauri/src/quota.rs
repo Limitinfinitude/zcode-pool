@@ -219,7 +219,7 @@ fn bigmodel_headers(token: &str) -> Vec<(String, String)> {
     ]
 }
 
-#[derive(Debug, Clone, serde::Serialize, Default)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct QuotaItem {
     pub name: String,
     pub total: Option<f64>,
@@ -242,9 +242,9 @@ pub struct QuotaItem {
     pub source_key: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, Default)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct PlanSlot {
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing, default)]
     pub pid: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tier: Option<String>,
@@ -261,7 +261,7 @@ pub struct PlanSlot {
     pub items: Vec<QuotaItem>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, Default)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct QuotaOverview {
     pub total: Option<f64>,
     pub used: Option<f64>,
@@ -274,7 +274,7 @@ pub struct QuotaOverview {
     pub items: Vec<QuotaItem>,
     pub refreshed_at: i64,
     pub source: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plans: Vec<PlanSlot>,
 }
 

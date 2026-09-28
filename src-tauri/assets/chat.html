@@ -5,54 +5,97 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Z·POOL 对话</title>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:#0e1116; color:#e8edf5; height:100vh; display:flex; flex-direction:column;
-         font:14px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
-  header { display:flex; gap:10px; align-items:center; padding:10px 16px; border-bottom:1px solid #1b212c;
-           flex:none; }
-  header b { font-weight:600; font-size:13px; letter-spacing:.3px; }
-  select,button { background:#161c26; color:#e8edf5; border:1px solid #252e3d; border-radius:7px;
-                  padding:6px 10px; font-size:13px; font-family:inherit; cursor:pointer; }
-  button.primary { background:#2866d9; border-color:#2866d9; font-weight:600; }
-  button:disabled { opacity:.5; cursor:default; }
-  #who { margin-left:auto; font-size:12px; color:#8d9aad; font-variant-numeric:tabular-nums; }
-  #log { flex:1; overflow-y:auto; padding:22px 16px 8px; }
-  .wrap { max-width:820px; margin:0 auto; }
-  .m { margin-bottom:18px; display:flex; gap:12px; }
-  .m .who { flex:none; width:52px; font-size:11px; color:#7d8a9d; padding-top:3px; text-align:right; }
-  .m .body { flex:1; min-width:0; }
-  .m .txt { white-space:pre-wrap; word-break:break-word;
-            font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:13.5px; }
-  .m.u .txt { color:#cfe0ff; }
-  .m.err .txt { color:#ff929b; font-size:12.5px; }
-  .m .meta { font-size:11px; color:#67d3a5; margin-top:8px; font-family:inherit; }
-  .m .meta.bad { color:#ff929b; }
-  /* 思考过程：默认折叠成一行，点开看全文 */
-  .think { margin-bottom:8px; font-size:12px; color:#7f8da1; }
-  .think summary { cursor:pointer; color:#8d9aad; list-style:none; user-select:none; }
-  .think summary::-webkit-details-marker { display:none; }
-  .think summary::before { content:"▸ "; color:#5d6b80; }
-  .think[open] summary::before { content:"▾ "; }
-  .think .inner { white-space:pre-wrap; word-break:break-word; padding:6px 0 0 14px;
-                  border-left:2px solid #232c3a; margin-left:2px; max-height:280px; overflow-y:auto; }
-  .cursor::after { content:"▍"; color:#2866d9; animation:bl .9s steps(1) infinite; }
-  @keyframes bl { 50% { opacity:0; } }
-  footer { flex:none; padding:10px 16px 16px; border-top:1px solid #1b212c; }
-  .inbox { max-width:820px; margin:0 auto; display:flex; gap:10px; align-items:flex-end; }
-  textarea { flex:1; background:#141a24; color:#e8edf5; border:1px solid #252e3d; border-radius:9px;
-             padding:10px 12px; font:13.5px/1.6 ui-monospace,"Cascadia Mono",Consolas,monospace;
-             resize:none; height:70px; outline:none; }
-  textarea:focus { border-color:#2f4a7d; }
-  .hint { max-width:820px; margin:8px auto 0; font-size:11px; color:#6b7787; }
+  
+  :root{
+    --bg:#0b0e13; --card:#141a22; --card2:#111720; --line:#222a35; --line2:#1b222c;
+    --fg:#e9eef6; --dim:#8b98ab; --dim2:#66738a; --hover:#171d26; --on:#1e2735;
+    --acc:#5b86f7; --acc-soft:#16223c; --ok:#3ecf8e; --warn:#e8b34a; --err:#f2637a; --violet:#a78bfa;
+    --user:#1a2334;
+  }
+  :root[data-theme="light"]{
+    --bg:#f5f6f8; --card:#ffffff; --card2:#fafbfc; --line:#e4e7ec; --line2:#eef0f3;
+    --fg:#1b2230; --dim:#5f6b7d; --dim2:#8b94a3; --hover:#f3f4f7; --on:#eef2fb;
+    --acc:#2563eb; --acc-soft:#e8effd; --ok:#12915c; --warn:#a16207; --err:#d92d4b; --violet:#7c5cf0;
+    --user:#eef2fb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);height:100vh;display:flex;flex-direction:column;
+       font:14px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .mono{font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace}
+  header{display:flex;gap:9px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);
+         flex:none;background:var(--bg)}
+  .logo{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+        background:linear-gradient(135deg,var(--acc),var(--violet));color:#fff;font-size:12px;font-weight:700}
+  header b{font-weight:600;font-size:13px;letter-spacing:.3px}
+  select,button,a.btn{background:var(--on);color:var(--dim);border:1px solid var(--line);border-radius:7px;
+        height:28px;padding:0 11px;font-size:12.5px;font-family:inherit;cursor:pointer;text-decoration:none;
+        display:inline-flex;align-items:center;gap:5px;transition:background .12s,color .12s,border-color .12s}
+  select{height:30px;color:var(--fg)}
+  button:hover,a.btn:hover{color:var(--fg);border-color:var(--dim2);background:var(--hover)}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--acc);border-color:transparent;color:#fff;font-weight:600;height:30px;padding:0 16px}
+  button.primary:hover{background:color-mix(in srgb,var(--acc) 86%,#000);color:#fff}
+  button:disabled{opacity:.45;cursor:default}
+  #who{margin-left:auto;font-size:11.5px;color:var(--dim2);font-variant-numeric:tabular-nums;
+       white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim2);display:inline-block;margin-right:5px}
+  .dot.on{background:var(--ok)}
+
+  #log{flex:1;overflow-y:auto;padding:22px 16px 8px;scroll-behavior:smooth}
+  .wrap{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+  .m{display:flex;gap:11px;align-items:flex-start}
+  .m .av{flex:none;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+         font-size:11px;font-weight:600;border:1px solid var(--line);background:var(--card2);color:var(--dim)}
+  .m.u{flex-direction:row-reverse}
+  .m.u .av{background:var(--acc-soft);border-color:color-mix(in srgb,var(--acc) 30%,transparent);color:var(--acc)}
+  .m .body{min-width:0;max-width:100%;flex:1}
+  .m .bub{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+  .m.u .bub{background:var(--user);border-color:color-mix(in srgb,var(--acc) 22%,var(--line))}
+  .m.err .bub{border-color:color-mix(in srgb,var(--err) 34%,var(--line));background:color-mix(in srgb,var(--err) 7%,var(--card))}
+  .m .txt{white-space:pre-wrap;word-break:break-word;font-size:13.5px}
+  .m .txt.rich{white-space:normal}
+  .m.err .txt{color:var(--err);font-size:12.5px}
+  .m .meta{margin-top:8px;font-size:11px;color:var(--dim2);display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .tag{font-size:10.5px;border:1px solid var(--line);border-radius:5px;padding:1px 7px;background:var(--card2);
+       color:var(--dim2);font-variant-numeric:tabular-nums}
+  .tag.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 30%,transparent);
+          background:color-mix(in srgb,var(--ok) 11%,transparent)}
+  .txt pre{background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:10px 12px;
+           overflow-x:auto;margin:9px 0;font:12.5px/1.6 ui-monospace,Consolas,monospace}
+  .txt code{background:var(--card2);border:1px solid var(--line);border-radius:5px;padding:1px 5px;
+            font:12.5px/1.5 ui-monospace,Consolas,monospace}
+  .txt pre code{background:none;border:0;padding:0}
+  .txt strong{font-weight:600}
+
+  
+  .think{margin-bottom:8px;font-size:12px;color:var(--dim2)}
+  .think summary{cursor:pointer;color:var(--dim2);list-style:none;user-select:none;font-size:11.5px}
+  .think summary::-webkit-details-marker{display:none}
+  .think summary::before{content:"▸ ";color:var(--dim2)}
+  .think[open] summary::before{content:"▾ "}
+  .think .inner{white-space:pre-wrap;word-break:break-word;padding:7px 0 0 13px;
+                border-left:2px solid var(--line2);margin-left:2px;max-height:280px;overflow-y:auto;color:var(--dim)}
+  .cursor::after{content:"▍";color:var(--acc);animation:bl .9s steps(1) infinite}
+  @keyframes bl{50%{opacity:0}}
+
+  footer{flex:none;padding:10px 16px 14px;border-top:1px solid var(--line);background:var(--bg)}
+  .inbox{max-width:860px;margin:0 auto;display:flex;gap:9px;align-items:flex-end}
+  textarea{flex:1;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:11px;
+           padding:11px 13px;font:13.5px/1.6 ui-monospace,Consolas,monospace;resize:none;height:72px;
+           max-height:260px;outline:none;transition:border-color .12s}
+  textarea:focus{border-color:color-mix(in srgb,var(--acc) 60%,var(--line))}
+  .hint{max-width:860px;margin:7px auto 0;font-size:11px;color:var(--dim2);display:flex;gap:9px;align-items:center}
+  .hint .grow{flex:1}
 </style>
 </head>
 <body>
 <header>
+  <span class="logo">Z</span>
   <b>Z·POOL</b>
   <select id="model"></select>
   <button id="reset">新会话</button>
-  <a id="adm" href="/proxy" style="color:#8d9aad;font-size:12px;text-decoration:none;border:1px solid #252e3d;border-radius:7px;padding:6px 10px">控制台</a>
+  <button id="theme" title="切换深浅色">◐</button>
+  <a class="btn" id="adm" href="/proxy">控制台</a>
   <span id="who">…</span>
 </header>
 <div id="log"><div class="wrap" id="msgs"></div></div>
@@ -62,17 +105,30 @@
     <button class="primary" id="send">发送</button>
     <button id="stop" hidden>停止</button>
   </div>
-  <div class="hint" id="hint">走本机反代，用号池的额度。开到「控制台」看当前路由和取码状态。</div>
+  <div class="hint">
+    <span>走本机反代，用号池的额度。</span>
+    <span class="grow"></span>
+    <span id="tally" class="mono"></span>
+  </div>
 </footer>
 
-<script>
-const $ = (id) => document.getElementById(id);
+<script>const $ = (id) => document.getElementById(id);
 const msgs = $("msgs");
 let history = [];
 let busy = false;
 let abort = null;
+let TALLY = { in: 0, out: 0, n: 0 };
 
-// 出什么错都回传一份给服务端日志，不用开 F12 也能看到
+try {
+  const t = localStorage.getItem("zpool-theme");
+  if (t) document.documentElement.dataset.theme = t;
+} catch (e) {}
+$("theme").onclick = () => {
+  const t = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("zpool-theme", t); } catch (e) {}
+};
+
 function report(kind, detail) {
   try {
     fetch("/client-log", { method: "POST", headers: { "content-type": "application/json" },
@@ -84,21 +140,44 @@ window.addEventListener("unhandledrejection",
   (e) => report("reject", (e.reason && (e.reason.message || e.reason)) || "?"));
 report("loaded", location.href);
 
+const escHtml = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function md(src) {
+  const parts = String(src).split(/```/);
+  let out = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) {                       
+      const seg = parts[i].replace(/^[a-zA-Z0-9_+-]*\n/, "");
+      out += "<pre><code>" + escHtml(seg.replace(/\n$/, "")) + "</code></pre>";
+    } else {
+      out += escHtml(parts[i])
+        .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+    }
+  }
+  return out;
+}
+
 (async function init() {
   const s = await fetch("/proxy/status").then(r => r.json()).catch(() => null);
   if (!s) { $("who").textContent = "反代没响应"; report("init", "/proxy/status 拿不到"); return; }
-  $("model").innerHTML = s.models.map(m => `<option>${m}</option>`).join("");
-  $("who").textContent = "号池 " + s.accounts.length + " · 路由 " + (s.routing || "-");
-  $("hint").textContent = "账户：" + s.accounts.slice(0, 6).join(" ") + (s.accounts.length > 6 ? " …" : "");
-  report("init", "就绪 路由=" + s.routing);
+  $("model").innerHTML = (s.externalModels || s.models || []).map(m => `<option>${m}</option>`).join("");
+
+  let last = "";
+  try {
+    const u = await fetch("/proxy/usage?limit=1", { cache: "no-store" }).then((r) => r.json());
+    last = ((u.rows || [])[0] || {}).acct || "";
+  } catch (e) {}
+  $("who").innerHTML = '<span class="dot' + (s.external ? " on" : "") + '"></span>' +
+    (s.external ? "运行中" : "已停") + " · 号池 " + s.accounts.length + (last ? " · 上次路由 " + escHtml(last) : "");
+  report("init", "就绪");
 })();
 
 function bubble(cls, who) {
   const el = document.createElement("div");
   el.className = "m " + cls;
-  el.innerHTML = `<div class="who">${who}</div><div class="body">
+  el.innerHTML = `<div class="av">${who}</div><div class="body">
       <details class="think" hidden><summary></summary><div class="inner"></div></details>
-      <div class="txt"></div><div class="meta"></div></div>`;
+      <div class="bub"><div class="txt"></div></div><div class="meta"></div></div>`;
   msgs.appendChild(el);
   return {
     el,
@@ -111,20 +190,23 @@ function bubble(cls, who) {
 }
 
 function scroll() { $("log").scrollTop = $("log").scrollHeight; }
+function tally() {
+  $("tally").textContent = TALLY.n ? (TALLY.n + " 次 · in " + TALLY.in + " / out " + TALLY.out) : "";
+}
 
 async function send() {
   const text = $("in").value.trim();
   if (!text || busy) return;
   busy = true; $("send").disabled = true; $("stop").hidden = false; $("in").value = "";
+  $("in").style.height = "72px";
   bubble("u", "你").txt.textContent = text;
   history.push({ role: "user", content: text });
 
-  const b = bubble("a", "助手");
+  const b = bubble("a", "AI");
   const t0 = performance.now();
   let think = "", acc = "", usage = null, raw = "";
   const model = $("model").value;
 
-  // 实时计时 + 状态，免得看着空屏以为卡死
   let phase = "等待上游…";
   const tick = setInterval(() => {
     const s = ((performance.now() - t0) / 1000).toFixed(1);
@@ -145,6 +227,8 @@ async function send() {
       throw new Error("HTTP " + r.status + "\n" + raw.slice(0, 600));
     }
     phase = "连接已建立，等待模型…";
+    const acct = r.headers.get("x-relay-account") || "?";
+    const note = r.headers.get("x-relay-note") || "";
 
     const reader = r.body.getReader();
     const dec = new TextDecoder();
@@ -165,14 +249,14 @@ async function send() {
           if (d.type === "thinking_delta" && d.thinking) {
             think += d.thinking;
             b.think.hidden = false;
-            b.think.open = !acc;                 // 正文一出来就自动折叠
+            b.think.open = !acc;                 
             b.inner.textContent = think;
             b.summary.textContent = acc ? "思考过程（点开看）" : "思考中…";
             if (!acc) phase = "思考中…";
             scroll();
           } else if (d.type === "text_delta" && d.text) {
             acc += d.text;
-            b.txt.textContent = acc;
+            b.txt.textContent = acc;             
             phase = "回复中…";
             scroll();
           }
@@ -185,11 +269,20 @@ async function send() {
       }
     }
     b.txt.classList.remove("cursor");
+    if (acc) { b.txt.classList.add("rich"); b.txt.innerHTML = md(acc); }
     if (acc && think) { b.think.open = false; b.summary.textContent = "思考过程（点开看）"; }
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
-    b.meta.textContent = `${r.headers.get("x-relay-account") || "?"} · `
-      + `${r.headers.get("x-relay-note") || ""} · ${secs}s`
-      + (usage ? ` · in ${usage.input_tokens} out ${usage.output_tokens}` : "");
+    const parts = [];
+    parts.push('<span class="tag ok">' + escHtml(acct) + "</span>");
+    if (note) parts.push('<span class="tag">' + escHtml(note) + "</span>");
+    parts.push('<span class="tag">' + escHtml(model) + "</span>");
+    parts.push('<span class="tag">' + secs + "s</span>");
+    if (usage) {
+      const i = usage.input_tokens || 0, o = usage.output_tokens || 0, c = usage.cache_read_input_tokens || 0;
+      parts.push('<span class="tag">↓' + i + " ↑" + o + (c ? " ⛁" + c : "") + "</span>");
+      TALLY.in += i; TALLY.out += o + c; TALLY.n++; tally();
+    }
+    b.meta.innerHTML = parts.join("");
     history.push({ role: "assistant", content: acc });
   } catch (e) {
     b.txt.classList.remove("cursor");
@@ -199,9 +292,8 @@ async function send() {
     } else {
       b.el.className = "m err";
       b.txt.textContent = String(e.message || e);
-      b.meta.className = "meta bad";
-      b.meta.textContent = "";
-      history.pop();                            // 失败的这轮不进历史
+      b.meta.innerHTML = "";
+      history.pop();                            
       report("send-fail", e.message || String(e));
     }
   } finally {
@@ -216,7 +308,13 @@ $("stop").onclick = () => { if (abort) abort.abort(); };
 $("in").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
-$("reset").onclick = () => { history = []; msgs.innerHTML = ""; };
+
+$("in").addEventListener("input", () => {
+  const el = $("in");
+  el.style.height = "auto";
+  el.style.height = Math.min(260, Math.max(72, el.scrollHeight)) + "px";
+});
+$("reset").onclick = () => { history = []; msgs.innerHTML = ""; TALLY = { in: 0, out: 0, n: 0 }; tally(); };
 $("in").focus();
 </script>
 </body>

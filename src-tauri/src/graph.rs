@@ -7,9 +7,9 @@ const SCOPE: &str = "https://graph.microsoft.com/.default";
 const TIMEOUT_SECS: u64 = 25;
 const MAX_TEXT: usize = 512 * 1024;
 const MAX_LINKS: usize = 5;
-/// 单封邮件返回给控制台的 HTML 上限（原样保留版式，别压成纯文本）
+
 const MAX_HTML: usize = 256 * 1024;
-/// 单封邮件最多抠多少条链接
+
 const MAX_EXTRACT: usize = 40;
 
 fn agent() -> ureq::Agent {
@@ -339,8 +339,6 @@ pub fn fetch_links(
     ))
 }
 
-/// 从邮件 HTML 里抠出来的一条链接：`url` 是目标，`text` 是 `<a>` 的显示文字
-/// （裸链接没有文字，空串）。控制台把这几条单独列出来，点一下就能复制激活链接。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MailLink {
     pub url: String,
@@ -348,9 +346,6 @@ pub struct MailLink {
     pub text: String,
 }
 
-/// 收件箱里的一封邮件（控制台「邮箱管理」页用）：
-/// **同时**给原文 `html`、纯文本兜底 `text`、以及从 HTML 里抠出来的 `links`。
-/// 不再把 HTML 压成纯文本 —— 那些邮件的用处就是取激活/验证链接，压完链接就没了。
 pub struct MailMessage {
     pub id: String,
     pub subject: String,
@@ -362,8 +357,6 @@ pub struct MailMessage {
     pub links: Vec<MailLink>,
 }
 
-/// 把邮件 HTML 正文压成纯文本：去掉标签、丢掉 `<style>`/`<script>` 里的内容、
-/// 解几个常见实体。只当 `text` 兜底用（比如邮件只有 HTML 时给个纯文本预览）。
 fn html_to_text(s: &str) -> String {
     let lower = s.to_ascii_lowercase();
     let mut out = String::with_capacity(s.len());
@@ -371,7 +364,7 @@ fn html_to_text(s: &str) -> String {
     let mut i = 0usize;
     while i < s.len() {
         if bytes[i] == b'<' {
-            // 跳过整个 <style>/<script> 块（含内容），它们会污染正文
+
             let rest = &lower[i..];
             let skip_tag = if rest.starts_with("<style") {
                 Some("</style>")
@@ -387,7 +380,7 @@ fn html_to_text(s: &str) -> String {
                     continue;
                 }
             }
-            // 普通标签：跳到 '>' 之后，补个空格避免相邻文字粘连
+
             match s[i..].find('>') {
                 Some(pos) => {
                     i += pos + 1;
@@ -413,7 +406,6 @@ fn html_to_text(s: &str) -> String {
         .join(" ")
 }
 
-/// 按字节上限截断，但**不切碎 UTF-8 字符**（切一半会 panic）
 fn truncate_bytes(s: &mut String, max: usize) {
     if s.len() <= max {
         return;
@@ -426,7 +418,6 @@ fn truncate_bytes(s: &mut String, max: usize) {
     s.push_str(" …");
 }
 
-/// 找 `http(s)://` 在字符串里的最早出现位置
 fn next_http(hay: &str) -> Option<usize> {
     match (hay.find("https://"), hay.find("http://")) {
         (Some(a), Some(b)) => Some(a.min(b)),
@@ -436,7 +427,6 @@ fn next_http(hay: &str) -> Option<usize> {
     }
 }
 
-/// URL 的结束位置：空白或这些「不可能出现在 URL 里」的字符
 fn url_end(s: &str) -> usize {
     s.find(|c: char| {
         c.is_whitespace()
@@ -459,7 +449,6 @@ fn trim_url_tail(mut link: String) -> String {
     link
 }
 
-/// 扫出文本里所有 `http(s)` URL（不限定主机）。裸链接用，去重留给调用方。
 fn scan_urls(hay: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut from = 0usize;
@@ -479,7 +468,6 @@ fn scan_urls(hay: &str) -> Vec<String> {
     out
 }
 
-/// 从一段开标签里取属性值（支持 `"`、`'`、裸值；大小写不敏感）
 fn attr_value(tag: &str, name: &str) -> Option<String> {
     let lower = tag.to_ascii_lowercase();
     let mut from = 0usize;
@@ -512,7 +500,6 @@ fn attr_value(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-/// 去掉标签留下可读文字（给 `<a>` 的显示文字用）
 fn strip_tags(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_tag = false;
@@ -533,15 +520,13 @@ fn strip_tags(s: &str) -> String {
         .join(" ")
 }
 
-/// 抠 `<a href="http(s)...">显示文字</a>`，返回 `(url, 文字)`。
-/// 只认 http(s)，`mailto:` 之类不要。
 fn extract_anchors(html: &str) -> Vec<(String, String)> {
     let lower = html.to_ascii_lowercase();
     let lb = lower.as_bytes();
     let mut out: Vec<(String, String)> = Vec::new();
     let mut i = 0usize;
     while i + 2 < html.len() {
-        // 定位 "<a" 且后面是空白或 '>'（排除 <abbr> 这类）
+
         let is_a = lb[i] == b'<'
             && lb[i + 1] == b'a'
             && matches!(lb[i + 2], b' ' | b'\t' | b'\r' | b'\n' | b'>');
@@ -572,8 +557,6 @@ fn extract_anchors(html: &str) -> Vec<(String, String)> {
     out
 }
 
-/// 汇总一封邮件的所有链接：先 `<a href>`（带显示文字），再补裸 http(s)。
-/// 按 url 去重、保文档顺序。
 pub fn extract_links(html: &str) -> Vec<MailLink> {
     let mut out: Vec<MailLink> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -596,7 +579,6 @@ pub fn extract_links(html: &str) -> Vec<MailLink> {
     out
 }
 
-/// 拉取收件箱最近若干封邮件（含原文 HTML、纯文本、链接）。和 `fetch_links` 一样会回落刷新的 refresh_token。
 pub fn fetch_messages(
     client_id: &str,
     refresh_token: &str,

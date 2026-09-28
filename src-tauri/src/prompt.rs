@@ -1,21 +1,3 @@
-//! 运行时获取 ZCode 的系统提示词（**不进仓库**）。
-//!
-//! 上游风控只认 ZCode 官方客户端那份 system prompt，必须**逐字节准确**。
-//! 因此这里从本机装的 ZCode 里把提示词抽出来：
-//!
-//! 1. 本地覆盖文件 `<store_dir>/system_prompt.json`（用户可手动放一份）
-//! 2. 从 `<ZCode.exe 目录>/resources/glm/zcode.cjs`（Electron 压缩 bundle）里抽取
-//!    抽成功后缓存成覆盖文件，下次直接读，不用每次解析 14 MB
-//! 3. 都不行 → Err（错误信息说清怎么办）
-//!
-//! 抽取器是 `extract_prompt.py` 的 Rust 移植：一个受限的 JS 子集求值器。
-//! 只依赖**语义锚点**（`source:"cli_prefix"` 等稳定字面量）回找构造器函数，
-//! **不依赖压缩变量名**（每次发版都变）。
-//!
-//! 安全性（最重要）：任何标识符/调用内联失败都**整体判失败**，绝不静默降级成
-//! 占位符 —— 那会拼出一个长度只差一点点的错误提示词，发出去被 3012，极难查。
-//! 另外还有污染特征扫描 + 硬门槛校验。
-
 use crate::store::{self, Paths};
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -24,20 +6,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-/// block0（cli_prefix）的固定前缀，作为硬门槛之一。
 const PROMPT_PREFIX: &str = "You are ZCode, an interactive coding agent";
-/// 覆盖/缓存文件名。
+
 const OVERRIDE_NAME: &str = "system_prompt.json";
 
-// ===========================================================================
-// 入口
-// ===========================================================================
-
-/// 取上游风控要看的 3 个 system block。三级来源见模块头注释。
 pub fn system_blocks(paths: &Paths) -> Result<Vec<Value>, String> {
     let override_path = paths.store_dir().join(OVERRIDE_NAME);
 
-    // 1. 本地覆盖文件
     if let Ok(bytes) = fs::read(&override_path) {
         match serde_json::from_slice::<Value>(&bytes)
             .ok()
@@ -51,10 +26,9 @@ pub fn system_blocks(paths: &Paths) -> Result<Vec<Value>, String> {
         }
     }
 
-    // 2. 从本机 ZCode 抽取
     match extract_from_zcode(paths) {
         Ok(b) => {
-            // 抽成功 → 缓存（写坏了也不影响本次返回值）
+
             if let Ok(s) = serde_json::to_string(&Value::Array(b.clone())) {
                 let _ = cache_write(&override_path, &s);
             }
@@ -77,11 +51,6 @@ fn cache_write(path: &Path, body: &str) -> Result<(), String> {
     fs::write(path, body).map_err(|e| e.to_string())
 }
 
-// ===========================================================================
-// 校验：硬门槛 + 污染扫描
-// ===========================================================================
-
-/// 校验 3 个 block 的结构/内容。任何不满足都判失败（绝不放行）。
 fn validate(blocks: &[Value]) -> Result<(), String> {
     if blocks.len() != 3 {
         return Err(format!("block 数应为 3，实为 {}", blocks.len()));
@@ -106,14 +75,14 @@ fn validate(blocks: &[Value]) -> Result<(), String> {
         }
         texts.push(t.to_string());
     }
-    // 硬门槛：block0 精确等于固定前缀
+
     if texts[0] != PROMPT_PREFIX {
         return Err(format!(
             "block0 不等于固定前缀（实得 {} 字符）",
             texts[0].chars().count()
         ));
     }
-    // 污染特征：任何占位符/未求值痕迹都判失败
+
     for (i, t) in texts.iter().enumerate() {
         for pat in ["undefined", "[object", "${", ",,"] {
             if t.contains(pat) {
@@ -121,7 +90,7 @@ fn validate(blocks: &[Value]) -> Result<(), String> {
             }
         }
     }
-    // 长度区间（宽松兜底）
+
     let l1 = texts[1].chars().count();
     let l2 = texts[2].chars().count();
     if !(1800..=3200).contains(&l1) {
@@ -132,10 +101,6 @@ fn validate(blocks: &[Value]) -> Result<(), String> {
     }
     Ok(())
 }
-
-// ===========================================================================
-// 从 ZCode 安装抽取
-// ===========================================================================
 
 fn extract_from_zcode(paths: &Paths) -> Result<Vec<Value>, String> {
     let cjs = find_zcode_cjs(paths)
@@ -149,7 +114,6 @@ fn extract_from_src(src: &str) -> Result<Vec<Value>, String> {
 
     let mut ev = Ev::new(src.clone());
 
-    // ---- 逐个构造 section（顺序 = ZCode build() 的 push 顺序）----
     let cli = ev.build_section(r#"source:"cli_prefix""#, &[])?;
     let identity = ev.build_section(r#"source:"identity""#, &[Val::Null])?;
     let desktop = ev.build_section(r#""desktop_context""#, &[])?;
@@ -167,8 +131,6 @@ fn extract_from_src(src: &str) -> Result<Vec<Value>, String> {
     )?;
     let ctx = ev.build_section(r#""context_management""#, &[])?;
 
-    // ---- 组装：完全复刻 assembleSystemMessages / TNe ----
-    // pick 遍历固定顺序，过滤后按 content 用 "\n\n" join
     let ordered: Vec<Val> = vec![cli, identity, desktop, dyn_b, session, env, ctx];
     let inj = |ev: &mut Ev, v: &Val| -> Result<String, String> {
         Ok(val_to_string(ev.get_prop(v, "injectionTarget")?))
@@ -214,7 +176,6 @@ fn extract_from_src(src: &str) -> Result<Vec<Value>, String> {
         json!({ "type": "text", "text": block2, "cache_control": { "type": "ephemeral" } }),
     ];
 
-    // 硬门槛 + 污染扫描：抽取器内部的失败已通过 Result 上抛，这里再兜一层
     validate(&blocks)?;
     Ok(blocks)
 }
@@ -254,7 +215,6 @@ fn obj_val(pairs: Vec<(&str, Val)>) -> Val {
     }))
 }
 
-/// 定位 `<ZCode.exe 目录>/resources/glm/zcode.cjs`。兼容 resources 在 exe 同目录或其父目录。
 fn find_zcode_cjs(paths: &Paths) -> Option<PathBuf> {
     let (primary, _) = store::effective_zcode_path(paths);
     let mut cands: Vec<String> = Vec::new();
@@ -290,12 +250,8 @@ fn derive_cjs(exe: &str) -> Option<PathBuf> {
             return Some(there);
         }
     }
-    Some(here) // 都不存在也返回候选，交由调用方报错
+    Some(here) 
 }
-
-// ===========================================================================
-// JS 子集：值
-// ===========================================================================
 
 type NR = Rc<Node>;
 type Scope = Rc<RefCell<HashMap<String, Val>>>;
@@ -318,7 +274,6 @@ impl Val {
     }
 }
 
-/// 惰性对象：属性只在被读取时求值。用来跳过 `tokens:wm(e)` 这类重且无关的属性。
 struct ObjVal {
     pairs: RefCell<Vec<(String, Deferred)>>,
 }
@@ -384,10 +339,6 @@ fn loose_eq(a: &Val, b: &Val) -> bool {
     }
 }
 
-// ===========================================================================
-// JS 子集：词法
-// ===========================================================================
-
 #[derive(Clone)]
 enum Tok {
     Str(String),
@@ -425,7 +376,7 @@ impl Lexer {
                 self.i += 1;
                 continue;
             }
-            // UTF-8 BOM
+
             if c == 0xEF && self.i + 2 < self.n && b[self.i + 1] == 0xBB && b[self.i + 2] == 0xBF
             {
                 self.i += 3;
@@ -467,7 +418,7 @@ impl Lexer {
         let src = self.src.clone();
         let b = src.as_bytes();
         let c = b[self.i];
-        // 字符串
+
         if c == b'"' || c == b'\'' {
             let q = c;
             let mut j = self.i + 1;
@@ -488,13 +439,13 @@ impl Lexer {
             self.i = j + 1;
             return Ok(Tok::Str(js_unescape(raw.as_bytes())));
         }
-        // 模板串
+
         if c == b'`' {
             let (parts, ni) = read_template(&self.src, self.i)?;
             self.i = ni;
             return Ok(Tok::Tpl(parts));
         }
-        // 数字
+
         if c.is_ascii_digit() || (c == b'.' && self.i + 1 < self.n && b[self.i + 1].is_ascii_digit())
         {
             let mut j = self.i;
@@ -518,7 +469,7 @@ impl Lexer {
             self.i = j;
             return Ok(Tok::Num(parse_num(raw)));
         }
-        // 标识符 / 关键字
+
         if is_ident_start(c) {
             let mut j = self.i;
             while j < self.n && is_ident_byte(b[j]) {
@@ -528,7 +479,7 @@ impl Lexer {
             self.i = j;
             return Ok(Tok::Ident(name));
         }
-        // 运算符 / 标点
+
         let rest = &self.src[self.i..];
         for p in ["===", "!==", "...", "**="] {
             if rest.starts_with(p) {
@@ -566,7 +517,6 @@ fn parse_num(raw: &str) -> f64 {
     }
 }
 
-/// 按 JS 字符串语义反转义（`—` → `—`，`\'` → `'` ...）。
 fn js_unescape(s: &[u8]) -> String {
     let mut out: Vec<u8> = Vec::with_capacity(s.len());
     let n = s.len();
@@ -633,7 +583,7 @@ fn js_unescape(s: &[u8]) -> String {
                 i += 3;
             }
             b'\r' | b'\n' => {
-                i += 1; // 行继续
+                i += 1; 
             }
             other => {
                 out.push(other);
@@ -651,7 +601,6 @@ fn push_codepoint(out: &mut Vec<u8>, cp: u32) {
     }
 }
 
-/// `src[i]` 是引号，返回字符串结束后的下标。模板串里的 `${...}` 递归配对花括号。
 fn skip_string(src: &str, i: usize) -> Result<usize, String> {
     let b = src.as_bytes();
     let n = b.len();
@@ -676,7 +625,6 @@ fn skip_string(src: &str, i: usize) -> Result<usize, String> {
     Err("未闭合的字符串字面量".to_string())
 }
 
-/// `src[i] == '{'`，返回配对 `}` 的下标（跳过字符串/注释/模板）。
 fn match_close(src: &str, i: usize) -> Result<usize, String> {
     let b = src.as_bytes();
     let n = b.len();
@@ -758,10 +706,6 @@ fn read_template(src: &str, i: usize) -> Result<(Vec<TplPart>, usize), String> {
     }
     Err("未闭合的模板字面量".to_string())
 }
-
-// ===========================================================================
-// JS 子集：语法（AST + 递归下降解析）
-// ===========================================================================
 
 enum ArrE {
     Elem(NR),
@@ -1082,7 +1026,7 @@ fn parse_array(p: &mut P) -> Result<NR, String> {
     }
     loop {
         if p.is_punct(",")? {
-            // 数组空位
+
             elems.push(ArrE::Elem(Rc::new(Node::Str(String::new()))));
         } else if p.is_punct("...")? {
             p.next_tok()?;
@@ -1134,7 +1078,7 @@ fn parse_object(p: &mut P) -> Result<NR, String> {
             p.next_tok()?;
             parse_assign(p)?
         } else {
-            // 简写 { foo } → { foo: foo }
+
             match shorthand {
                 Some(n) => Rc::new(Node::Ident(n)),
                 None => return Err("对象简写键非法".to_string()),
@@ -1229,10 +1173,6 @@ fn parse_stmt(p: &mut P) -> Result<Stmt, String> {
     Ok(Stmt::Expr(node))
 }
 
-// ===========================================================================
-// JS 子集：求值器
-// ===========================================================================
-
 struct Ev {
     src: Rc<str>,
     globals: HashMap<String, Val>,
@@ -1250,15 +1190,12 @@ impl Ev {
         }
     }
 
-    /// 锚点 → 构造器函数 → 内联执行 → section 对象。
     fn build_section(&mut self, anchor: &str, args: &[Val]) -> Result<Val, String> {
         let fidx = find_builder_function(&self.src, anchor)?;
         let f = Rc::new(parse_function_at(&self.src, fidx)?);
         self.call_function(&f, args.to_vec())
             .map_err(|e| format!("构造 section {anchor} 失败：{e}"))
     }
-
-    // ---- 全局解析（不依赖压缩变量名：按名字按需回找定义）----
 
     fn find_function_idx(&self, name: &str) -> Option<usize> {
         let b = self.src.as_bytes();
@@ -1274,7 +1211,7 @@ impl Ev {
                 }
                 if k > p + "function".len() && self.src[k..].starts_with(name) {
                     let mut m = k + name.len();
-                    // 名字后不能紧跟标识符字符（防止匹配到更长的标识符）
+
                     if m >= n || !is_ident_byte(b[m]) {
                         while m < n && b[m].is_ascii_whitespace() {
                             m += 1;
@@ -1337,7 +1274,7 @@ impl Ev {
             return Ok(Val::Func(f));
         }
         if let Some(pos) = self.find_assignment(name) {
-            // RHS 是 AssignmentExpression，逗号不属于它
+
             let sub = self.src[pos..].to_string();
             let node = parse_expr_src(&sub, true)?;
             let scope: Scope = Rc::new(RefCell::new(HashMap::new()));
@@ -1347,8 +1284,6 @@ impl Ev {
         }
         Err(format!("找不到标识符定义：{name}"))
     }
-
-    // ---- 表达式求值 ----
 
     fn eval(&mut self, node: &NR, scope: &Scope) -> Result<Val, String> {
         match &**node {
@@ -1654,8 +1589,6 @@ impl Ev {
         }
     }
 
-    // ---- 属性 / 方法 ----
-
     fn get_prop(&mut self, obj: &Val, prop: &str) -> Result<Val, String> {
         match obj {
             Val::Obj(o) => self.obj_get(o, prop),
@@ -1801,11 +1734,6 @@ fn type_name(v: &Val) -> &'static str {
     }
 }
 
-// ===========================================================================
-// 锚点定位 + 函数解析
-// ===========================================================================
-
-/// 用语义锚点回找最近的 `function ` 定义（不依赖函数名）。
 fn find_builder_function(src: &str, anchor: &str) -> Result<usize, String> {
     let idx = src
         .find(anchor)
@@ -1855,7 +1783,7 @@ fn parse_function_at(src: &Rc<str>, i: usize) -> Result<FuncDef, String> {
     }
     let params_raw = &src[pstart..j - 1];
     let params = parse_params(params_raw)?;
-    // 函数体：从 ')' 起找 '{'
+
     let open = src[j - 1..]
         .find('{')
         .map(|x| j - 1 + x)
