@@ -214,8 +214,10 @@ window.onerror = (m, src, l) => rep("onerror", m + " @line " + l);
 window.addEventListener("unhandledrejection", (e) => rep("reject", (e.reason && (e.reason.stack || e.reason.message || e.reason)) || "?"));
 rep("loaded", location.href);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-// srcdoc 属性值必须整体转义，否则邮件里的 " 会把 iframe 属性撑破
-const escSrcdoc = (s) => esc(s);
+// srcdoc 是**属性值**，会被当 HTML 解析：只转义 & 和 " 就够（防属性被撑破）。
+// ⚠ **不能**把 < > 也转掉 —— 那样邮件 HTML 会被当成纯文本源码显示，
+// 用户看到的是满屏标签、不是邮件（之前就是这么坏的）。
+const escSrcdoc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const num = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
 const rate = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : (Math.round(n * 10) / 10).toString());
@@ -714,7 +716,9 @@ function accountCard(a) {
     "<div>" + body + "</div>" +
     '<div class="acct-acts">' +
       '<button class="mini" data-act-quota="' + esc(a.id) + '">◇ 查询额度</button>' +
-      '<button class="mini" data-act-claim="' + esc(a.id) + '">✦ 查资格/领取</button>' +
+      // 这个按钮**只查不领**（结果出到下面的面板，领取是面板里套餐那一行的事）。
+      // 文案别写成「查资格/领取」—— 那样看着像一步，跟实际行为不符。
+      '<button class="mini" data-act-claim="' + esc(a.id) + '">✦ 查可领套餐</button>' +
       (a.is_active ? "" : '<button class="mini" data-act-switch="' + esc(a.id) + '">⇄ 切换</button>') +
       '<button class="mini" data-act-upd="' + esc(a.id) + '">⤓ 更新</button>' +
       '<button class="mini" data-act-rn="' + esc(a.id) + '">✎ 重命名</button>' +
@@ -813,14 +817,14 @@ function viewAcct() {
     </div>
   </div>
 
-  <div class="panel"><h2>查资格 / 领取 <span class="grow"></span>
-    <span style="color:var(--dim2);font-weight:400">${ACC_DETAIL && ACC_DETAIL.id ? esc(accountName(ACC_DETAIL.id)) : "点账号卡片的「查资格/领取」"}</span></h2>
+  <div class="panel"><h2>可领套餐 / 领取 <span class="grow"></span>
+    <span style="color:var(--dim2);font-weight:400">${ACC_DETAIL && ACC_DETAIL.id ? esc(accountName(ACC_DETAIL.id)) : "点账号卡片的「查可领套餐」"}</span></h2>
     <div class="body">${claimPanelHtml()}</div>
   </div>`;
 }
 function claimPanelHtml() {
   const d = ACC_DETAIL;
-  if (!d) return '<div class="blank">点某个账号卡片上的「查资格/领取」看可领套餐</div>';
+  if (!d) return '<div class="blank">点某个账号卡片上的「查可领套餐」看这里</div>';
   if (d.loading) return '<div class="blank">查询中…</div>';
   if (d.error) return '<div class="blank" style="color:var(--err)">' + esc(d.error) + "</div>";
   const data = d.data || {};
