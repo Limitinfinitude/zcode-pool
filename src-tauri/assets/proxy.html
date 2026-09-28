@@ -189,26 +189,19 @@
   .q-row .qr{font-size:11px;color:var(--dim2);font-variant-numeric:tabular-nums;
              font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace;
              white-space:nowrap;min-width:78px;text-align:right;flex:none}
-  /* 到期分档汇总：一档一行，档内按模型平铺 token 量。今天/已过期走 --err 强调（要立刻处理），
-     3 天内走 --warn，更久走灰。颜色全走 --* 变量，深浅两套主题自动跟随。 */
-  .exp{display:flex;flex-direction:column;gap:7px}
-  .exp-row{display:flex;gap:14px;align-items:flex-start;padding:8px 11px;border-radius:9px;
-           border:1px solid var(--line);background:var(--card2)}
-  .exp-row.hot{border-color:color-mix(in srgb,var(--err) 42%,var(--line));
-               background:color-mix(in srgb,var(--err) 9%,var(--card2))}
-  .exp-row.bad{border-color:color-mix(in srgb,var(--err) 30%,var(--line));
-               background:color-mix(in srgb,var(--err) 5%,var(--card2))}
-  .exp-row.warm{border-color:color-mix(in srgb,var(--warn) 34%,var(--line))}
-  .exp-bd{flex:none;width:96px;display:flex;flex-direction:column;gap:2px}
-  .exp-bd b{font-size:12.5px;font-weight:700;color:var(--dim)}
-  .exp-row.hot .exp-bd b,.exp-row.bad .exp-bd b{color:var(--err)}
-  .exp-row.warm .exp-bd b{color:var(--warn)}
-  .exp-bd span{font-size:11px;color:var(--dim2);font-variant-numeric:tabular-nums}
-  .exp-items{display:flex;flex-wrap:wrap;gap:5px 16px;min-width:0;flex:1;align-content:flex-start}
-  .exp-mi{font-size:12px;color:var(--fg);white-space:nowrap}
-  .exp-mi em{font-style:normal;margin-left:5px;color:var(--dim);font-variant-numeric:tabular-nums;
-             font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace}
-  .exp-none{font-size:11.5px;color:var(--dim2);padding:2px 0}
+  /* 仪表盘「吞吐 + 今天到期」那一行：左吞吐占 2/3，右边今天到期是一张小卡（占 1/3）。 */
+  .dash-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:var(--gap);align-items:start}
+  .dash-row>.panel+.panel{margin-top:0}   /* 抵消 .panel + .panel 的 margin，网格里两栏才对得齐 */
+  @media(max-width:820px){.dash-row{grid-template-columns:1fr}}
+  /* 今天到期：按模型一行一个剩余 token 量。不红 —— 强调走 --acc，深浅两套主题自动跟随。 */
+  .due-list{display:flex;flex-direction:column;gap:4px}
+  .due-row{display:flex;align-items:baseline;gap:10px}
+  .due-nm{flex:1;min-width:0;font-size:12px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .due-v{flex:none;font-size:12px;font-weight:600;color:var(--acc);font-variant-numeric:tabular-nums;
+         font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace}
+  .due-sum{margin-top:9px;padding-top:8px;border-top:1px solid var(--line2);font-size:11.5px;color:var(--dim2);
+           font-variant-numeric:tabular-nums}
+  .due-none{font-size:11.5px;color:var(--dim2);padding:2px 0}
   .acct-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:var(--gap)}
   .acct-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
   .acct-card.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
@@ -617,9 +610,15 @@ function viewDash() {
     </div>
   </div>
 
-  <div class="panel">
-    <h2>吞吐 <span class="grow"></span><span data-p="dp-spark-note" style="color:var(--dim2);font-weight:400">最近 ${HIST.length} 次采样 · 2 秒一次</span></h2>
-    <div class="body"><canvas id="spark" style="height:64px"></canvas></div>
+  <div class="dash-row">
+    <div class="panel">
+      <h2>吞吐 <span class="grow"></span><span data-p="dp-spark-note" style="color:var(--dim2);font-weight:400">最近 ${HIST.length} 次采样 · 2 秒一次</span></h2>
+      <div class="body"><canvas id="spark" style="height:64px"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>今天到期 <span class="grow"></span><span style="color:var(--dim2);font-weight:400">按剩余 token</span></h2>
+      <div class="body" data-p="due-today">${dueTodayInner()}</div>
+    </div>
   </div>
 
   <div class="grid2" style="margin-top:var(--gap)">
@@ -658,6 +657,7 @@ function patchDash() {
   PT("dp-spark-note", "最近 " + HIST.length + " 次采样 · 2 秒一次");
   PH("dp-histo", histogram());
   PH("dp-errdist", errDist());
+  PH("due-today", dueTodayInner());
   drawSpark();
 }
 
@@ -1209,13 +1209,14 @@ function quotaSummaryInner() {
       "</div>" +
     "</div></div>";
 }
-/* ---------- 顶部：按到期时间分档的汇总（这次新增，摆在「额度汇总」上方） ----------
+/* ---------- 到期聚合（仪表盘右侧「今天到期」小卡用） ----------
    数据只从 QMAP（每个已查额度号的 items）聚合，不碰任何 fetch / 接口。
    每号先 dedupItems 去重（与 byModel、exe quotaSummary 同一口径，避免同套餐重复计），
-   再把每条按自己的 period_end 落档：已过期 / 今天到期 / 3 天内 / 更久。
-   档内按模型累加 **remaining（剩余 token）** —— 要的是「还能用、且快失效」的量，
-   所以取剩余而不是总量（总量放 hover title）。没标到期时间的归「更久」且不算紧急。
-   日期按本地整天差算（0=今天，1..3=3 天内，>3=更久）。基数 = 已查额度且非空的号。 */
+   再把每条按自己的 period_end 落档：已过期 / 今天到期 / 3 天内 / 更久；
+   小卡只取「今天到期」这一档（expBucketOf 返回 1）。
+   档内按模型累加 **remaining（剩余 token）** —— 要的是「还能用、且今天失效」的量，
+   所以取剩余而不是总量（总量放 hover title）。
+   日期按本地整天差算（0=今天）。基数 = 已查额度且非空的号。 */
 const EXP_BUCKETS = [
   { label: "已过期", cls: "bad" },
   { label: "今天到期", cls: "hot" },
@@ -1236,7 +1237,7 @@ function expBucketOf(days) {
   if (days <= 3) return 2;
   return 3;
 }
-function acctExpiryInner() {
+function expiryBuckets() {
   const acc = EXP_BUCKETS.map(() => new Map());
   let accounts = 0;
   for (const id of Object.keys(QMAP)) {
@@ -1254,29 +1255,21 @@ function acctExpiryInner() {
       acc[b].set(name, m);
     }
   }
-  const all = (ACC && ACC.accounts || []).length;
-  const rows = EXP_BUCKETS.map((B, i) => {
-    const ms = [...acc[i].entries()].sort((a, b) => (b[1].remaining || 0) - (a[1].remaining || 0));
-    const sum = ms.reduce((a, x) => a + (x[1].remaining || 0), 0);
-    const items = ms.length
-      ? '<div class="exp-items">' + ms.map(([k, m]) => {
-          const tip = k + " · 剩余 " + fmtTok(m.remaining) + (m.total ? " / 总量 " + fmtTok(m.total) : "");
-          return '<span class="exp-mi" title="' + esc(tip) + '">' + esc(k) + "<em>" + esc(fmtTok(m.remaining)) + "</em></span>";
-        }).join("") + "</div>"
-      : '<div class="exp-none">' + (accounts ? "没有额度" : "还没有已查额度的号") + "</div>";
-    return '<div class="exp-row ' + B.cls + '">' +
-      '<div class="exp-bd"><b>' + esc(B.label) + "</b><span>" +
-        (ms.length ? ms.length + " 个模型 · " + fmtTok(sum) : "—") + "</span></div>" + items + "</div>";
-  }).join("");
-  const base = accounts
-    ? "基于已查额度的 " + accounts + " 个号" + (all ? " / 共 " + all : "") + " · 按剩余 token · 最早失效优先"
-    : "还没有已查额度的号 —— 点「查询全部额度」";
-  return '<h2>额度到期 <span class="grow"></span>' +
-    '<span style="color:var(--dim2);font-weight:400">' + esc(base) + "</span></h2>" +
-    '<div class="body"><div class="exp">' + rows + "</div></div>";
+  return { acc, accounts };
 }
-function acctExpiryHtml() {
-  return '<div class="panel" data-p="acct-expiry">' + acctExpiryInner() + "</div>";
+/* 仪表盘右侧小卡：只渲染「今天到期」这一档（expBucketOf 里下标 1）。没数据时给一句灰字空状态。 */
+function dueTodayInner() {
+  const { acc, accounts } = expiryBuckets();
+  const ms = [...acc[1].entries()].sort((a, b) => (b[1].remaining || 0) - (a[1].remaining || 0));
+  if (!ms.length) return '<div class="due-none">' + (accounts ? "今天没有到期的额度" : "还没有已查额度的号") + "</div>";
+  const sum = ms.reduce((a, x) => a + (x[1].remaining || 0), 0);
+  const rows = ms.map(([k, m]) => {
+    const tip = k + " · 剩余 " + fmtTok(m.remaining) + (m.total ? " / 总量 " + fmtTok(m.total) : "");
+    return '<div class="due-row"><span class="due-nm" title="' + esc(tip) + '">' + esc(k) +
+      '</span><span class="due-v">' + esc(fmtTok(m.remaining)) + "</span></div>";
+  }).join("");
+  return '<div class="due-list">' + rows + "</div>" +
+    '<div class="due-sum">' + ms.length + " 个模型 · " + esc(fmtTok(sum)) + "</div>";
 }
 /* ---------- 局部更新：账号页的额度（查询额度不再整页重画） ---------- */
 function patchAcct() {
@@ -1286,7 +1279,6 @@ function patchAcct() {
     if (a) el.innerHTML = accountBodyHtml(a);
   }
   PH("acct-summary", quotaSummaryInner());
-  PH("acct-expiry", acctExpiryInner());
 }
 function viewAcct() {
   const st = ACC || {};
@@ -1306,7 +1298,7 @@ function viewAcct() {
       <div class="n mono" style="font-size:13px">…</div>
       <div class="foot mono" style="word-break:break-all">${esc(st.store_dir || "—")}</div></div>
   </div>`;
-  return acctExpiryHtml() + quotaSummaryHtml() + statCards + `
+  return quotaSummaryHtml() + statCards + `
   <div class="panel"><h2>账号池 <span class="grow"></span>
     <span style="color:var(--dim2);font-weight:400">切换会关掉并重启 ZCode，会二次确认</span></h2>
     <div class="body" style="display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">
