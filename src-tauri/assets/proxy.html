@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Z·POOL 中转站</title>
+<title>proxy 控制台</title>
 <script>
   // 主题先落地再渲染，避免闪一下白底
   try {
@@ -138,12 +138,15 @@
 <body>
 <div class="app">
   <aside>
-    <div class="brand"><span class="logo">Z</span><b>Z·POOL</b><em class="lb">proxy</em></div>
+    <div class="brand"><span class="logo">Z</span><b>Z·POOL</b><em class="lb">proxy 控制台</em></div>
     <div class="nav" id="nav">
       <a data-r="dash" class="on"><span class="ico">◱</span><span class="lb">仪表盘</span></a>
       <a data-r="chan"><span class="ico">◈</span><span class="lb">渠道</span></a>
       <a data-r="policy"><span class="ico">⚙</span><span class="lb">策略</span></a>
       <a data-r="usage"><span class="ico">▤</span><span class="lb">用量</span></a>
+      <a data-r="acct"><span class="ico">☰</span><span class="lb">账号</span></a>
+      <a data-r="mail"><span class="ico">✉</span><span class="lb">邮箱</span></a>
+      <a data-r="mbox"><span class="ico">▥</span><span class="lb">邮箱管理</span></a>
       <a data-r="admin"><span class="ico">❖</span><span class="lb">管理</span></a>
       <a data-r="keys"><span class="ico">⚒</span><span class="lb">设置</span></a>
       <a data-r="logs"><span class="ico">≡</span><span class="lb">日志</span></a>
@@ -180,13 +183,23 @@ const num = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
 const rate = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : (Math.round(n * 10) / 10).toString());
 const hhmmss = (t) => new Date(t).toLocaleTimeString("zh-CN", { hour12: false });
 
-const ROUTES = { dash: "仪表盘", chan: "渠道", policy: "策略", usage: "用量", admin: "管理", keys: "设置", logs: "日志" };
+const ROUTES = { dash: "仪表盘", chan: "渠道", policy: "策略", usage: "用量", acct: "账号", mail: "邮箱", mbox: "邮箱管理", admin: "管理", keys: "设置", logs: "日志" };
 let route = (location.hash || "").slice(1);
 // /proxy/admin 也指向这个页面：没有 hash 时按路径落到「管理」
 if (!route || !ROUTES[route]) route = /\/admin\/?$/.test(location.pathname) ? "admin" : "dash";
 let S = null, LOGS = [], fails = 0, tickN = 0, showAll = false;
 // 用量页：明细 + 聚合 + 服务端筛选
 let USAGE = null;
+// 仪表盘卡片要的聚合（/proxy/usage/stats）
+let STATS = null;
+// 日志分页
+const LOGP = { page: 0, limit: 50, total: 0, lines: [], loading: false };
+// 账号页 / 邮箱页 / 邮箱管理页的缓存
+let ACC = null, ACC_DETAIL = null, ACC_DETAIL_ID = "";
+let MAIL = null, MAIL_SEL = new Set();
+// 邮箱管理页支持 ?email=xxx 预选（方便从别处直接链进来看某封信）
+const Q_EMAIL = new URLSearchParams(location.search).get("email") || "";
+let MBOX = { email: Q_EMAIL, data: null, sel: -1, err: "" };
 const UFILTER = { acct: "", model: "", fail: false };
 const HIST = [];
 const NOISE = ["page-disk", "mint-window", "mint-load", "已存在"];
@@ -288,6 +301,7 @@ function errDist() {
 
 function viewDash() {
   const s = S || {}, m = s.mint || {};
+  const t = (STATS && STATS.total) || { n: 0, in: 0, out: 0, fail: 0, avgMs: null };
   const chans = s.channels || [];
   // routed.account 是账号 **id**，要拿 channels 映射回名字 —— 之前直接把 id 显示出来了
   const nameOf = (id) => (chans.find((c) => c.id === id) || {}).name || id;
@@ -315,6 +329,21 @@ function viewDash() {
       <div class="lb">累计输出</div>
       <div class="n">${num(s.tokens)}<small>tok</small></div>
       <div class="foot">${num(Math.round((s.bytes || 0) / 1024))} KB · ${num(s.served)} 次请求</div>
+    </div>
+    <div class="card">
+      <div class="lb">平均响应时间</div>
+      <div class="n">${t.avgMs == null ? "—" : num(t.avgMs)}<small>ms</small></div>
+      <div class="foot">整发时长 · 来自用量记录</div>
+    </div>
+    <div class="card">
+      <div class="lb">请求数</div>
+      <div class="n">${num(t.n)}</div>
+      <div class="foot">${t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功"}</div>
+    </div>
+    <div class="card">
+      <div class="lb">累计 Token</div>
+      <div class="n">${num((t.in || 0) + (t.out || 0))}</div>
+      <div class="foot">输入 ${num(t.in)} · 输出 ${num(t.out)}</div>
     </div>
     <div class="card" role="button" tabindex="0" style="cursor:pointer" onclick="location.hash='#chan'" title="去渠道页看明细">
       <div class="lb">号池健康 <span class="grow"></span><span style="color:var(--dim2)">明细 ›</span></div>
@@ -526,7 +555,8 @@ function lvl(line) {
   return ["dim", "其他"];
 }
 function viewLogs() {
-  const all = LOGS.slice().reverse();
+  // 服务端分页：LOGP.lines 是「本页」的 50 条（旧 -> 新），显示时翻过来（新在上）
+  const all = LOGP.lines.slice().reverse();
   const rel = showAll ? all : all.filter((l) => !NOISE.some((n) => l.includes(n)));
   const rows = rel.map((l) => {
     const cls = lvl(l), t = l.slice(0, 19), rest = l.slice(20).replace(/^\[[a-z\-]+\] /, "");
@@ -535,18 +565,382 @@ function viewLogs() {
       '<td class="mono" style="word-break:break-all">' + esc(rest) + "</td></tr>";
   }).join("");
   const n = (k) => rel.filter((l) => lvl(l)[1] === k).length;
+  const limit = LOGP.limit, total = LOGP.total, page = LOGP.page;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const offset = page * limit;
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(total, offset + limit);
+  // 页码：当前页附近 ±2，再补首尾
+  const nums = [];
+  for (let p = Math.max(0, page - 2); p <= Math.min(pages - 1, page + 2); p++) nums.push(p);
+  const pager = '<div style="display:flex;align-items:center;gap:6px;padding:11px 16px;border-top:1px solid var(--line2);flex-wrap:wrap">' +
+    '<button class="mini" data-logp="0"' + (page === 0 ? " disabled" : "") + '>首页</button>' +
+    '<button class="mini" data-logp="' + (page - 1) + '"' + (page === 0 ? " disabled" : "") + '>上一页</button>' +
+    nums.map((p) => '<button class="mini" data-logp="' + p + '"' +
+      (p === page ? ' style="color:var(--fg);border-color:var(--acc)"' : "") + ">" + (p + 1) + "</button>").join("") +
+    '<button class="mini" data-logp="' + (page + 1) + '"' + (page >= pages - 1 ? " disabled" : "") + '>下一页</button>' +
+    '<button class="mini" data-logp="' + (pages - 1) + '"' + (page >= pages - 1 ? " disabled" : "") + ">末页</button>" +
+    '<span class="grow"></span>' +
+    '<span style="color:var(--dim2);font-size:12px">第 ' + (page + 1) + " / " + pages + " 页 · 共 " + num(total) +
+    " 条 · 本页 " + from + "-" + to + (rel.length !== all.length ? "（过滤调试后 " + rel.length + " 条）" : "") + "</span></div>";
   return '<div class="panel"><h2>请求日志 <span class="grow"></span>' +
     '<label style="font-weight:400;color:var(--dim);cursor:pointer;margin-right:10px;font-size:12px">' +
     '<input type="checkbox" id="all" ' + (showAll ? "checked" : "") + ' style="vertical-align:-1px"> 含调试</label>' +
-    '<span style="color:var(--dim2);font-weight:400">' + rel.length + " / " + all.length + " 条 · 每 2 秒刷新</span></h2>" +
+    '<span style="color:var(--dim2);font-weight:400">每页 ' + limit + ' 条 · 每 2 秒刷新</span></h2>' +
+    pager +
     '<div class="body" style="border-bottom:1px solid var(--line2);padding:11px 16px;display:flex;gap:6px;flex-wrap:wrap">' +
     '<span class="tag ok">成功 ' + n("成功") + "</span>" +
     '<span class="tag bad">风控 ' + n("风控") + "</span>" +
     '<span class="tag warn">限流 ' + n("限流") + "</span>" +
     '<span class="tag info">探测 ' + n("探测") + "</span>" +
     '<span class="tag mint">取码 ' + n("取码") + "</span></div>" +
-    (rows ? '<div class="scroll"><table><thead><tr><th>时间</th><th>类型</th><th>内容</th></tr></thead><tbody>' + rows + "</tbody></table></div>"
-          : '<div class="blank">还没有日志</div>') + "</div>";
+    (rows ? '<table><thead><tr><th>时间</th><th>类型</th><th>内容</th></tr></thead><tbody>' + rows + "</tbody></table>"
+          : '<div class="blank">这一页没有日志</div>') +
+    "</div>";
+}
+
+/* ---------- 视图：账号（账号池） ---------- */
+function idLabel(a) {
+  const id = a.identity || {};
+  return id.display_name || id.username || id.email || id.user_id || "—";
+}
+function viewAcct() {
+  const st = ACC || {};
+  const list = st.accounts || [];
+  const rows = list.map((a) => {
+    const active = a.is_active;
+    return "<tr>" +
+      '<td class="mono">' + esc(a.name) + (active ? ' <span class="tag ok">当前</span>' : "") + "</td>" +
+      '<td>' + esc(idLabel(a)) + "</td>" +
+      "<td>" + (a.has_config ? '<span class="tag info">有配置</span> ' : "") +
+        (a.has_user_info ? '<span class="tag dim">有UID</span>' : "") + "</td>" +
+      '<td class="mono" style="color:var(--dim2);white-space:nowrap">' + esc(a.updated_at || a.created_at || "") + "</td>" +
+      '<td style="text-align:right;white-space:nowrap">' +
+        (active ? "" : '<button class="mini" data-act-switch="' + esc(a.id) + '">切换</button> ') +
+        '<button class="mini" data-act-quota="' + esc(a.id) + '">额度</button> ' +
+        '<button class="mini" data-act-claim="' + esc(a.id) + '">领取</button> ' +
+        '<button class="mini" data-act-upd="' + esc(a.id) + '">更新</button> ' +
+        '<button class="mini" data-act-rn="' + esc(a.id) + '">重命名</button> ' +
+        '<button class="mini" data-act-del="' + esc(a.id) + '">删除</button>' +
+      "</td></tr>";
+  }).join("");
+  return `
+  <div class="cards">
+    <div class="card"><div class="lb">账号数</div><div class="n">${list.length}</div>
+      <div class="foot">${st.active_account_id ? "有当前登录" : "当前没有匹配的登录账号"}</div></div>
+    <div class="card"><div class="lb">ZCode 进程</div>
+      <div class="n" style="color:${st.zcode_running ? "var(--ok)" : "var(--dim)"}">${st.zcode_running ? "运行中" : "未运行"}</div>
+      <div class="foot">启动 / 关闭在下面</div></div>
+    <div class="card"><div class="lb">ZCode 路径</div>
+      <div class="n" style="font-size:14px">${st.zcode_path_ok ? "有效" : "无效"}</div>
+      <div class="foot mono" style="word-break:break-all">${esc(st.zcode_path || "—")}</div></div>
+    <div class="card"><div class="lb">存储目录</div>
+      <div class="n mono" style="font-size:13px">…</div>
+      <div class="foot mono" style="word-break:break-all">${esc(st.store_dir || "—")}</div></div>
+  </div>
+
+  <div class="panel"><h2>账号池 <span class="grow"></span>
+    <span style="color:var(--dim2);font-weight:400">切换会关掉并重启 ZCode，会二次确认</span></h2>
+    <div class="body" style="display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">
+      <button class="mini" data-acc-reload>刷新</button>
+      <button class="mini" data-acc-capture>从当前登录新建</button>
+      <button class="mini" data-acc-launch>启动 ZCode</button>
+      <button class="mini" data-acc-kill>关闭 ZCode</button>
+      <button class="mini" data-acc-live-quota>刷新额度缓存</button>
+      <span class="grow"></span>
+      <a class="mini" href="/proxy/accounts/export" download style="text-decoration:none">导出账号库</a>
+    </div>
+    ${rows ? '<table><thead><tr><th>名称</th><th>身份</th><th>标记</th><th>更新时间</th><th></th></tr></thead><tbody>' + rows + "</tbody></table>"
+          : '<div class="blank">账号库是空的 —— 登录 ZCode 后点「从当前登录新建」</div>'}
+    <div class="body" style="border-top:1px solid var(--line2)">
+      <div class="kv"><span class="k">ZCode 路径</span>
+        <div class="copy" style="max-width:420px"><input id="zpath" class="mono" placeholder="C:\\...\\ZCode.exe" value="${esc(st.zcode_path || "")}"
+          style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 ui-monospace,monospace"></div>
+        <button class="mini" data-acc-setpath>提交</button></div>
+      <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">浏览器调不出系统文件选择框，这里只能手填路径 —— 挑文件还是回 exe 面板。</div>
+    </div>
+  </div>
+
+  <div class="panel"><h2>账号详情 <span class="grow"></span>
+    <span style="color:var(--dim2);font-weight:400">${ACC_DETAIL_ID ? esc(ACC_DETAIL_ID) : "点某行的「额度 / 领取」查看"}</span></h2>
+    <div class="body">${accDetailHtml()}</div>
+  </div>`;
+}
+
+function accDetailHtml() {
+  const d = ACC_DETAIL;
+  if (!d) return '<div class="blank">先在上面点一个账号的「额度」或「领取」</div>';
+  if (d.error) return '<div class="blank" style="color:var(--err)">' + esc(d.error) + "</div>";
+  const name = (ACC && (ACC.accounts || []).find((a) => a.id === ACC_DETAIL_ID) || {}).name || ACC_DETAIL_ID;
+  if (d.kind === "quota") {
+    const q = d.data || {};
+    const plans = q.plans || q.models || [];
+    const rows = (Array.isArray(plans) ? plans : []).map((p) =>
+      '<div class="kv"><span class="k" style="width:auto">' + esc(p.name || p.model || p.id || "?") + "</span>" +
+      '<span class="v mono">' + esc(JSON.stringify(p.grant_items || p.grants || p)) + "</span></div>").join("");
+    return '<div style="color:var(--dim);font-size:12px;margin-bottom:8px">' + esc(name) + "</div>" +
+      (rows || '<div class="blank">没有额度明细</div>');
+  }
+  // claim：预览到可领套餐
+  const plans = d.data.plans || [];
+  const hint = d.data.activated === false && d.data.activationError
+    ? '<div style="color:var(--err);font-size:12px;margin-bottom:8px">激活上报失败：' + esc(d.data.activationError) + "</div>" : "";
+  if (!plans.length) return hint + '<div class="blank">没查到可领取的套餐</div>';
+  return hint + '<div style="color:var(--dim);font-size:12px;margin-bottom:8px">' + esc(name) + " · 共 " + plans.length + " 个套餐</div>" +
+    plans.map((p) =>
+      '<div class="kv"><span class="k" style="width:auto">' + esc(p.name || p.plan_id) + "</span>" +
+      '<span class="v">' + esc(p.description || "") + "</span>" +
+      '<span class="grow"></span><span class="tag dim">' + esc(p.plan_id) + "</span></div>").join("") +
+    '<div style="color:var(--dim2);font-size:11.5px;margin-top:10px">真正的领取要弹滑块验证码窗（浏览器给不了那个环境），请在 exe 面板完成提交。</div>';
+}
+
+/* ---------- 视图：邮箱（邮箱库） ---------- */
+function mailStatus(a) {
+  const map = { verified: ["ok", "已验证"], failed: ["bad", "失败"], invalid: ["bad", "需重授权"], new: ["dim", "未验证"] };
+  return map[a.status] || ["dim", a.status || "未验证"];
+}
+function viewMail() {
+  const list = (MAIL && MAIL.accounts) || [];
+  const rows = list.map((a) => {
+    const st = mailStatus(a);
+    return "<tr>" +
+      '<td><input type="checkbox" class="cbx mail-check" data-email="' + esc(a.email) + '"' + (MAIL_SEL.has(a.email) ? " checked" : "") + "></td>" +
+      '<td class="mono">' + esc(a.email) + "</td>" +
+      '<td><span class="tag ' + st[0] + '">' + st[1] + "</span>" +
+        (a.note ? ' <span style="color:var(--dim2);font-size:11px">' + esc(a.note) + "</span>" : "") + "</td>" +
+      "<td>" + (a.has_token ? '<span class="tag dim">有 token</span>' : '<span class="tag dim" style="opacity:.5">无 token</span>') + "</td>" +
+      '<td class="mono" style="color:var(--dim2);white-space:nowrap">' + esc(a.verified_at || a.created_at || "") + "</td>" +
+      '<td style="text-align:right;white-space:nowrap">' +
+        '<button class="mini" data-mail-view="' + esc(a.email) + '">查看邮件</button> ' +
+        '<button class="mini" data-mail-ok="' + esc(a.email) + '">标记验证</button> ' +
+        '<button class="mini" data-mail-reset="' + esc(a.email) + '">重置</button> ' +
+        '<button class="mini" data-mail-del="' + esc(a.email) + '">删除</button>' +
+      "</td></tr>";
+  }).join("");
+  const verified = list.filter((a) => a.status === "verified").length;
+  return `
+  <div class="cards">
+    <div class="card"><div class="lb">邮箱总数</div><div class="n">${list.length}</div>
+      <div class="foot">选中 ${MAIL_SEL.size} 个</div></div>
+    <div class="card"><div class="lb">已验证</div><div class="n" style="color:var(--ok)">${verified}</div><div class="foot">status=verified</div></div>
+    <div class="card"><div class="lb">未验证</div><div class="n">${list.length - verified}</div><div class="foot">含失败 / 需重授权</div></div>
+  </div>
+  <div class="panel"><h2>邮箱库 <span class="grow"></span>
+    <span style="color:var(--dim2);font-weight:400">格式 email----password----client_id----refresh_token</span></h2>
+    <div class="body" style="display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">
+      <button class="mini" data-mail-import>导入（选文件上传）</button>
+      <input type="file" id="mailfile" accept=".txt,text/plain" style="display:none">
+      <a class="mini" href="/proxy/mail/export" download style="text-decoration:none">导出</a>
+      <button class="mini" data-mail-oksel ${MAIL_SEL.size ? "" : "disabled"}>标记选中为已验证</button>
+      <button class="mini" data-mail-resetsel ${MAIL_SEL.size ? "" : "disabled"}>重置选中</button>
+      <button class="mini" data-mail-delsel ${MAIL_SEL.size ? "" : "disabled"}>删除选中</button>
+      <span class="grow"></span>
+      <input id="mailline" class="mono" placeholder="粘贴一行：email----password----client_id----refresh_token"
+        style="background:var(--input);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 10px;font:12px/1.4 ui-monospace,monospace;min-width:340px">
+      <button class="mini" data-mail-upsert>写入</button>
+    </div>
+    ${rows ? '<table><thead><tr><th></th><th>邮箱</th><th>状态</th><th>凭据</th><th>时间</th><th></th></tr></thead><tbody>' + rows + "</tbody></table>"
+          : '<div class="blank">邮箱库是空的 —— 点「导入」上传一个 txt</div>'}
+    <div class="foot-note">导入走浏览器上传（读成文本 POST 上来），不再弹系统文件框。凭据只在本机显示，局域网访问会被打码。</div>
+  </div>`;
+}
+
+/* ---------- 视图：邮箱管理（看正文） ---------- */
+function viewMbox() {
+  const list = (MAIL && MAIL.accounts) || [];
+  const opts = list.map((a) => '<option value="' + esc(a.email) + '"' + (a.email === MBOX.email ? " selected" : "") + ">" + esc(a.email) + "</option>").join("");
+  const d = MBOX.data;
+  const msgs = (d && d.messages) || [];
+  const rows = msgs.map((m, i) =>
+    '<div class="mrow" data-mbox-i="' + i + '" style="padding:9px 12px;border-bottom:1px solid var(--line2);cursor:pointer;' +
+      (i === MBOX.sel ? "background:var(--on)" : "") + '">' +
+      '<div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.subject) + "</div>" +
+      '<div style="color:var(--dim2);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        esc(m.from || "") + " · " + esc((m.receivedAt || "").replace("T", " ").slice(0, 19)) + "</div>" +
+    "</div>").join("");
+  const cur = MBOX.sel >= 0 ? msgs[MBOX.sel] : null;
+  const detail = cur
+    ? '<div style="padding:4px 2px"><div style="font-weight:600;margin-bottom:6px">' + esc(cur.subject) + "</div>" +
+      '<div style="color:var(--dim2);font-size:11.5px;margin-bottom:10px">' + esc(cur.from || "") + " · " +
+        esc((cur.receivedAt || "").replace("T", " ").slice(0, 19)) + "</div>" +
+      '<div style="white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.7">' + esc(cur.body || cur.preview || "（正文为空）") + "</div></div>"
+    : '<div class="blank">左边点一封邮件看正文</div>';
+  return `
+  <div class="panel"><h2>邮箱管理 <span class="grow"></span>
+    <span style="color:var(--dim2);font-weight:400">看收件箱正文（Graph 拉最近若干封）</span></h2>
+    <div class="body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line2);padding:11px 16px">
+      <select id="mboxsel" style="background:var(--input);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 10px;font:12.5px/1.4 inherit;min-width:260px">
+        <option value="">— 选一个邮箱 —</option>${opts}</select>
+      <button class="mini" data-mbox-load>刷新</button>
+      <span class="grow"></span>
+      <span style="color:var(--dim2);font-size:12px">${MBOX.err ? '<span style="color:var(--err)">' + esc(MBOX.err) + "</span>" : (d ? "共 " + msgs.length + " 封" : "")}</span>
+    </div>
+    <div class="grid2" style="gap:0">
+      <div style="border-right:1px solid var(--line2);max-height:460px;overflow:auto">
+        ${rows || '<div class="blank">' + (MBOX.email ? "没有邮件或还没加载" : "先选一个邮箱") + "</div>"}
+      </div>
+      <div style="padding:14px 16px;max-height:460px;overflow:auto">${detail}</div>
+    </div>
+  </div>`;
+}
+
+/* ---------- 数据加载 / 交互：账号 / 邮箱 / 邮箱管理 ---------- */
+// 新管理接口统一走这个：POST 返回 {error} 或非 2xx 都当失败抛出
+async function api(url, body) {
+  const opt = body === undefined
+    ? { cache: "no-store" }
+    : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+  const r = await fetch(url, opt);
+  let d = null;
+  try { d = await r.json(); } catch (e) {}
+  if (!r.ok || (d && d.error)) throw new Error((d && d.error) || ("HTTP " + r.status));
+  return d;
+}
+async function loadAccounts() {
+  try { ACC = await api("/proxy/accounts"); }
+  catch (e) { ACC = { accounts: [], error: String(e.message || e) }; }
+  if (route === "acct") render();
+}
+async function loadMail() {
+  try { MAIL = await api("/proxy/mail"); }
+  catch (e) { MAIL = { accounts: [], error: String(e.message || e) }; }
+  const live = new Set(((MAIL && MAIL.accounts) || []).map((a) => a.email));
+  for (const e of [...MAIL_SEL]) if (!live.has(e)) MAIL_SEL.delete(e);
+  if (route === "mail") render();
+}
+async function loadMbox() {
+  if (!MBOX.email) { MBOX.data = null; MBOX.err = ""; if (route === "mbox") render(); return; }
+  MBOX.err = "";
+  try {
+    MBOX.data = await api("/proxy/mail/messages?email=" + encodeURIComponent(MBOX.email) + "&top=20");
+    MBOX.sel = MBOX.data.messages && MBOX.data.messages.length ? 0 : -1;
+  } catch (e) { MBOX.data = null; MBOX.sel = -1; MBOX.err = String(e.message || e); }
+  if (route === "mbox") render();
+}
+async function accDetail(kind, id) {
+  ACC_DETAIL_ID = id;
+  ACC_DETAIL = { kind, loading: true };
+  if (route === "acct") render();
+  try {
+    const d = kind === "quota" ? await api("/proxy/account/quota?id=" + encodeURIComponent(id))
+      : await api("/proxy/account/claim-preview", { id });
+    ACC_DETAIL = { kind, data: d };
+  } catch (e) { ACC_DETAIL = { kind, error: String(e.message || e) }; }
+  if (route === "acct") render();
+}
+async function loadLogs() {
+  if (LOGP.loading) return;
+  LOGP.loading = true;
+  try {
+    const d = await fetch("/proxy/logs?offset=" + (LOGP.page * LOGP.limit) + "&limit=" + LOGP.limit, { cache: "no-store" }).then((r) => r.json());
+    LOGP.lines = d.lines || [];
+    LOGP.total = d.total || 0;
+    const pages = Math.max(1, Math.ceil(LOGP.total / LOGP.limit));
+    if (LOGP.page > pages - 1) { LOGP.page = pages - 1; LOGP.loading = false; return loadLogs(); }
+  } catch (e) {}
+  LOGP.loading = false;
+  if (route === "logs") render();
+}
+// 仪表盘三张卡 + 日志分布都要聚合数据
+async function loadStats() {
+  try {
+    const [s, l] = await Promise.all([
+      fetch("/proxy/usage/stats", { cache: "no-store" }).then((r) => r.json()),
+      fetch("/proxy/logs?offset=0&limit=200", { cache: "no-store" }).then((r) => r.json()),
+    ]);
+    STATS = s; LOGS = l.lines || [];
+  } catch (e) {}
+}
+function wireAcct() {
+  const rl = document.querySelector("[data-acc-reload]"); if (rl) rl.onclick = () => loadAccounts();
+  const cap = document.querySelector("[data-acc-capture]");
+  if (cap) cap.onclick = async () => {
+    const name = prompt("新账号名字（留空自动生成）：", "") || "";
+    try { await api("/proxy/account/capture", { name }); await loadAccounts(); } catch (e) { alert(String(e.message || e)); }
+  };
+  const ln = document.querySelector("[data-acc-launch]");
+  if (ln) ln.onclick = async () => { try { await api("/proxy/zcode/launch", {}); } catch (e) { alert(String(e.message || e)); } };
+  const kl = document.querySelector("[data-acc-kill]");
+  if (kl) kl.onclick = async () => { if (!confirm("关掉 ZCode 进程？")) return; try { await api("/proxy/zcode/kill", {}); } catch (e) { alert(String(e.message || e)); } };
+  const lq = document.querySelector("[data-acc-live-quota]");
+  if (lq) lq.onclick = () => { lq.disabled = true; lq.textContent = "刷新中…"; post("/proxy/refresh-quota", {}); };
+  const sp = document.querySelector("[data-acc-setpath]");
+  if (sp) sp.onclick = async () => {
+    const p = ($("zpath") || {}).value || "";
+    try { await api("/proxy/zcode/path", { path: p }); await loadAccounts(); alert("路径已保存"); } catch (e) { alert(String(e.message || e)); }
+  };
+  for (const b of document.querySelectorAll("[data-act-switch]")) b.onclick = async () => {
+    if (!confirm("切换到该账号会关掉并重启 ZCode，确定？")) return;
+    b.disabled = true; b.textContent = "切换中…";
+    try { const d = await api("/proxy/account/switch", { id: b.dataset.actSwitch, force: false, restart: true }); if (d && d.status) S = d.status; await loadAccounts(); }
+    catch (e) { alert(String(e.message || e)); b.disabled = false; b.textContent = "切换"; }
+  };
+  for (const b of document.querySelectorAll("[data-act-del]")) b.onclick = async () => {
+    if (!confirm("删除账号？此操作不可撤销。")) return;
+    try { await api("/proxy/account/delete", { id: b.dataset.actDel }); await loadAccounts(); } catch (e) { alert(String(e.message || e)); }
+  };
+  for (const b of document.querySelectorAll("[data-act-rn]")) b.onclick = async () => {
+    const name = prompt("新名字：", ""); if (name == null) return;
+    try { await api("/proxy/account/rename", { id: b.dataset.actRn, name }); await loadAccounts(); } catch (e) { alert(String(e.message || e)); }
+  };
+  for (const b of document.querySelectorAll("[data-act-upd]")) b.onclick = async () => {
+    try { await api("/proxy/account/update-live", { id: b.dataset.actUpd }); await loadAccounts(); } catch (e) { alert(String(e.message || e)); }
+  };
+  for (const b of document.querySelectorAll("[data-act-quota]")) b.onclick = () => accDetail("quota", b.dataset.actQuota);
+  for (const b of document.querySelectorAll("[data-act-claim]")) b.onclick = () => accDetail("claim", b.dataset.actClaim);
+}
+function wireMail() {
+  const imp = document.querySelector("[data-mail-import]");
+  const file = $("mailfile");
+  if (imp && file) {
+    imp.onclick = () => file.click();
+    file.onchange = async () => {
+      const f = file.files && file.files[0]; if (!f) return;
+      try {
+        const text = await f.text();
+        const r = await api("/proxy/mail/import", { text });
+        alert("导入完成：新增 " + r.added + "，跳过 " + r.skipped + "，解析 " + r.parsed);
+        await loadMail();
+      } catch (e) { alert(String(e.message || e)); }
+      file.value = "";
+    };
+  }
+  for (const c of document.querySelectorAll(".mail-check")) c.onchange = () => {
+    if (c.checked) MAIL_SEL.add(c.dataset.email); else MAIL_SEL.delete(c.dataset.email);
+    if (route === "mail") render();
+  };
+  const one = async (url, body) => { try { await api(url, body); await loadMail(); } catch (e) { alert(String(e.message || e)); } };
+  for (const b of document.querySelectorAll("[data-mail-view]")) b.onclick = () => {
+    MBOX.email = b.dataset.mailView; MBOX.data = null; MBOX.sel = -1;
+    route = "mbox"; location.hash = "#mbox"; loadMbox();
+  };
+  for (const b of document.querySelectorAll("[data-mail-ok]")) b.onclick = () => one("/proxy/mail/mark-verified", { email: b.dataset.mailOk, ok: true });
+  for (const b of document.querySelectorAll("[data-mail-reset]")) b.onclick = () => one("/proxy/mail/reset", { email: b.dataset.mailReset });
+  for (const b of document.querySelectorAll("[data-mail-del]")) b.onclick = () => { if (confirm("删除 " + b.dataset.mailDel + "？")) one("/proxy/mail/remove", { email: b.dataset.mailDel }); };
+  const loop = async (fn) => { for (const e of [...MAIL_SEL]) { try { await fn(e); } catch (x) {} } MAIL_SEL.clear(); await loadMail(); };
+  const okSel = document.querySelector("[data-mail-oksel]");
+  if (okSel) okSel.onclick = () => loop((e) => api("/proxy/mail/mark-verified", { email: e, ok: true }));
+  const resetSel = document.querySelector("[data-mail-resetsel]");
+  if (resetSel) resetSel.onclick = () => loop((e) => api("/proxy/mail/reset", { email: e }));
+  const delSel = document.querySelector("[data-mail-delsel]");
+  if (delSel) delSel.onclick = async () => {
+    if (!confirm("删除选中的 " + MAIL_SEL.size + " 个邮箱？")) return;
+    try { const r = await api("/proxy/mail/remove-many", { emails: [...MAIL_SEL] }); MAIL_SEL.clear(); await loadMail(); alert("删除 " + r.removed + " 个"); }
+    catch (e) { alert(String(e.message || e)); }
+  };
+  const up = document.querySelector("[data-mail-upsert]");
+  if (up) up.onclick = async () => {
+    const line = ($("mailline") || {}).value || "";
+    if (!line.trim()) return;
+    try { await api("/proxy/mail/upsert", { line }); await loadMail(); } catch (e) { alert(String(e.message || e)); }
+  };
+}
+function wireMbox() {
+  const sel = $("mboxsel");
+  if (sel) sel.onchange = () => { MBOX.email = sel.value; MBOX.data = null; MBOX.sel = -1; loadMbox(); };
+  const lb = document.querySelector("[data-mbox-load]");
+  if (lb) lb.onclick = () => loadMbox();
+  for (const row of document.querySelectorAll("[data-mbox-i]")) row.onclick = () => { MBOX.sel = Number(row.dataset.mboxI); render(); };
 }
 
 /* ---------- 视图：用量 ---------- */
@@ -689,15 +1083,25 @@ function viewAdmin() {
 function view() {
   return route === "dash" ? viewDash() : route === "chan" ? viewChan()
     : route === "policy" ? viewPolicy() : route === "usage" ? viewUsage()
+    : route === "acct" ? viewAcct() : route === "mail" ? viewMail() : route === "mbox" ? viewMbox()
     : route === "admin" ? viewAdmin() : route === "keys" ? viewSettings() : viewLogs();
 }
 function render() {
   $("title").textContent = ROUTES[route];
-  $("stitle").textContent = route === "dash" ? "本机号池中转 · 只监听 127.0.0.1" : "";
+  $("stitle").textContent = route === "dash" ? "本机号池 · 只监听 127.0.0.1" : "";
   for (const a of $("nav").children) a.className = a.dataset.r === route ? "on" : "";
-  $("view").innerHTML = view();
-  if (route === "dash") drawSpark();
-  if (route === "usage") { wireUsage(); if (!USAGE) loadUsage(); }
+  // 正在输入时不要重建 DOM，否则每 2 秒把焦点/已输入内容冲掉
+  const ae = document.activeElement;
+  const typing = ae && $("view").contains(ae) && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA");
+  if (!typing) {
+    $("view").innerHTML = view();
+    if (route === "dash") drawSpark();
+    if (route === "usage") { wireUsage(); if (!USAGE) loadUsage(); }
+    if (route === "acct") { wireAcct(); if (!ACC) loadAccounts(); }
+    if (route === "mail") { wireMail(); if (!MAIL) loadMail(); }
+    if (route === "mbox") { wireMbox(); if (!MBOX.data && MBOX.email) loadMbox(); }
+    if (route === "logs" && !LOGP.lines.length && !LOGP.loading) loadLogs();
+  }
 
   for (const b of document.querySelectorAll("[data-act]")) {
     b.onclick = () => {
@@ -750,6 +1154,9 @@ function render() {
   }
   const all = $("all");
   if (all) all.onchange = () => { showAll = all.checked; render(); };
+  for (const b of document.querySelectorAll("[data-logp]")) {
+    b.onclick = () => { if (b.disabled) return; LOGP.page = Number(b.dataset.logp); loadLogs(); };
+  }
 }
 
 $("nav").onclick = (e) => {
@@ -783,12 +1190,14 @@ async function tick() {
     if (tickN === 1) rep("status-ok", "keys=" + Object.keys(S).length);
     HIST.push(S.tps || 0);
     while (HIST.length > 60) HIST.shift();
-    // 日志比较重（几百行），不用每次都拉
-    if (tickN % 3 === 1 || route === "logs") {
-      try { LOGS = ((await fetch("/proxy/logs", { cache: "no-store" }).then((r) => r.json())).lines) || []; } catch (e) {}
-    }
+    // 日志页：本页每 2 秒刷一次（服务端分页）
+    if (route === "logs") loadLogs();
+    // 仪表盘卡片（平均响应时间 / 请求数 / 累计 Token）和日志分布：别每 2 秒都算
+    if (route === "dash" && (tickN % 5 === 1 || !STATS)) loadStats();
     // 用量页：状态轮询顺带刷一下（服务端筛选，跟着 UFILTER 走）
     if (route === "usage" && tickN % 3 === 1) loadUsage();
+    if (route === "acct" && tickN % 5 === 1) loadAccounts();
+    if (route === "mail" && tickN % 5 === 1) loadMail();
     $("sdot2").className = "dot" + (S.external ? " on" : "");
     $("sfoot").textContent = (S.external ? "运行中" : "已关闭") + " · :" + S.port;
     $("ldot").className = "dot" + (S.generating ? " on live" : S.external ? " on" : "");

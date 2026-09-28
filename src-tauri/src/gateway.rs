@@ -1559,6 +1559,90 @@ fn reply_json(req: tiny_http::Request, code: u16, v: &Value) -> Result<(), Strin
     Ok(())
 }
 
+/// 下载类响应（导出邮箱库 / 账号库）：`text/plain`，让浏览器直接存成文件。
+fn reply_text(req: tiny_http::Request, body: String, filename: &str) -> Result<(), String> {
+    let mk = |k: &str, v: &str| tiny_http::Header::from_bytes(k.as_bytes(), v.as_bytes()).unwrap();
+    let _ = req.respond(tiny_http::Response::new(
+        tiny_http::StatusCode(200),
+        vec![
+            mk("Content-Type", "text/plain; charset=utf-8"),
+            mk("Content-Disposition", &format!("attachment; filename=\"{filename}\"")),
+            mk("Cache-Control", "no-store"),
+        ],
+        std::io::Cursor::new(body.into_bytes()),
+        None,
+        None,
+    ));
+    Ok(())
+}
+
+/// 凭据字段名（小写比较）。命中就掩码 —— 邮箱密码 / refresh_token / JWT / access_token / 密钥。
+const SECRET_KEYS: [&str; 12] = [
+    "password",
+    "refresh_token",
+    "refreshtoken",
+    "access_token",
+    "accesstoken",
+    "id_token",
+    "jwt",
+    "secret",
+    "client_secret",
+    "api_key",
+    "apikey",
+    "token",
+];
+
+fn is_secret_key(k: &str) -> bool {
+    let k = k.to_ascii_lowercase();
+    SECRET_KEYS.iter().any(|m| k == *m || k.ends_with(&format!("_{m}")))
+}
+
+/// 掩码：只留前 4 位 + `***`。太短就直接 `***`。
+fn mask_secret(s: &str) -> String {
+    let n = s.chars().count();
+    if n == 0 {
+        return String::new();
+    }
+    if n <= 4 {
+        return "***".to_string();
+    }
+    let head: String = s.chars().take(4).collect();
+    format!("{head}***")
+}
+
+/// 递归把 JSON 里凭据类字段掩掉。**只有非回环调用才走这里** —— 本机浏览器照旧看到原文。
+fn mask_json(v: &mut Value) {
+    match v {
+        Value::Object(map) => {
+            for (k, val) in map.iter_mut() {
+                if is_secret_key(k) {
+                    if let Some(s) = val.as_str() {
+                        *val = json!(mask_secret(s));
+                    }
+                } else {
+                    mask_json(val);
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for x in arr.iter_mut() {
+                mask_json(x);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// 返回 JSON，但非回环调用时先把凭据字段打码。
+fn reply_json_masked(req: tiny_http::Request, code: u16, v: &Value, from_loopback: bool) -> Result<(), String> {
+    if from_loopback {
+        return reply_json(req, code, v);
+    }
+    let mut c = v.clone();
+    mask_json(&mut c);
+    reply_json(req, code, &c)
+}
+
 /// 上游风控要看的 system 段（首次成功解析后缓存；失败不缓存，下次请求可重试）。
 fn system_blocks(paths: &Paths) -> Result<Vec<Value>, String> {
     static B: std::sync::OnceLock<Vec<Value>> = std::sync::OnceLock::new();
@@ -2044,7 +2128,14 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
         "/proxy/usage/stats" => {
             return reply_json(req, 200, &crate::usage::stats(&crate::usage::path_for(&paths.store_dir())));
         }
-        "/proxy/logs" => return reply_json(req, 200, &json!({ "lines": crate::flowlog::tail(300) })),
+        // 日志：真分页。offset 从最新一条往回数，limit 默认 50（上限 500）。
+        // 返回 lines + total 让前端自己算页数，别再用滚动条。
+        "/proxy/logs" => {
+            let offset = query_param(&url, "offset").and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
+            let limit = query_param(&url, "limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50).clamp(1, 500);
+            let (lines, total) = crate::flowlog::tail_page(offset, limit);
+            return reply_json(req, 200, &json!({ "lines": lines, "total": total, "offset": offset, "limit": limit }));
+        }
         // 手动探一个 / 全部探一遍
         "/proxy/probe" => {
             let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
@@ -2196,6 +2287,334 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
                 .map(|m| json!({ "id": m, "type": "model", "object": "model" }))
                 .collect();
             return reply_json(req, 200, &json!({ "object": "list", "data": data }));
+        }
+        // ---- 管理接口：把 exe 面板的「数据操作」搬进网页 ----
+        // 业务逻辑一律复用 store:: / pool:: / claim:: 现成的函数，不重写一遍。
+        // 有副作用（切换/重启/杀进程）的由前端二次确认。
+        // 凭据字段非回环一律打码（reply_json_masked）。
+        "/proxy/accounts" => {
+            return match store::get_state(&paths) {
+                Ok(st) => reply_json(req, 200, &json!(st)),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/account/quota" => {
+            let id = query_param(&url, "id").unwrap_or_default();
+            return match store::account_quota(&paths, &id) {
+                Ok(q) => reply_json(req, 200, &json!(q)),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/account/capture" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let name = v.get("name").and_then(|x| x.as_str()).map(str::to_string).filter(|s| !s.trim().is_empty());
+            let r = { let _g = crate::store_guard(); store::capture_current(&paths, name) };
+            return match r {
+                Ok(a) => reply_json_masked(req, 200, &json!(a), from_loopback),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/account/rename" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let r = { let _g = crate::store_guard(); store::rename_account(&paths, &id, &name) };
+            return match r {
+                Ok(a) => reply_json_masked(req, 200, &json!(a), from_loopback),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/account/delete" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let r = { let _g = crate::store_guard(); store::delete_account(&paths, &id) };
+            return match r {
+                Ok(()) => reply_json(req, 200, &json!({ "ok": true, "status": gw.console_status(&paths) })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/account/update-live" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let r = { let _g = crate::store_guard(); store::update_account_from_live(&paths, &id) };
+            return match r {
+                Ok(a) => reply_json_masked(req, 200, &json!(a), from_loopback),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        // ⚠ 有副作用：会关掉并重启 ZCode
+        "/proxy/account/switch" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let force = v.get("force").and_then(|x| x.as_bool()).unwrap_or(false);
+            let restart = v.get("restart").and_then(|x| x.as_bool()).unwrap_or(true);
+            let r = { let _g = crate::store_guard(); store::switch_to(&paths, &id, force, restart) };
+            return match r {
+                Ok(s) => reply_json(req, 200, &json!({ "result": s, "status": gw.console_status(&paths) })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        // 领取套餐：只做「预览 + 激活刷新」。真正的提交要弹滑块验证码窗，
+        // 浏览器给不了那个环境 —— 那一步留在 exe。
+        "/proxy/account/claim-preview" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let mid = match store::account_mid(&paths, &id) { Ok(m) => m, Err(e) => return reply_json(req, 400, &json!({ "error": e })) };
+            let acc = match store::load_account(&paths, &id) { Ok(a) => a, Err(e) => return reply_json(req, 400, &json!({ "error": e })) };
+            return match crate::claim::preview_plans(&paths.home, &acc.credentials, acc.config.as_ref(), Some(mid)) {
+                Ok(plans) => reply_json(req, 200, &json!({ "plans": plans })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/account/claim-refresh" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let mid = match store::account_mid(&paths, &id) { Ok(m) => m, Err(e) => return reply_json(req, 400, &json!({ "error": e })) };
+            let acc = match store::load_account(&paths, &id) { Ok(a) => a, Err(e) => return reply_json(req, 400, &json!({ "error": e })) };
+            let (activated, activation_error) = match crate::claim::telemetry_user_id(&paths.home, &acc.credentials) {
+                Some(uid) => match crate::claim::report_activation_events(&uid, &mid) {
+                    Ok(()) => (true, None),
+                    Err(e) => (false, Some(e)),
+                },
+                None => (false, None),
+            };
+            return match crate::claim::preview_plans(&paths.home, &acc.credentials, acc.config.as_ref(), Some(mid)) {
+                Ok(plans) => reply_json(req, 200, &json!({ "plans": plans, "activated": activated, "activationError": activation_error })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        // ZCode 进程 / 路径：文件对话框浏览器给不了，这里只显示 + 手填提交
+        "/proxy/zcode/launch" => {
+            let (p, ok) = store::effective_zcode_path(&paths);
+            if !ok {
+                return reply_json(req, 400, &json!({ "error": format!("ZCode 路径无效：{p}") }));
+            }
+            return match store::launch_zcode(&p) {
+                Ok(()) => reply_json(req, 200, &json!({ "ok": true, "status": gw.console_status(&paths) })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/zcode/kill" => {
+            return match store::kill_zcode() {
+                Ok(_) => reply_json(req, 200, &json!({ "ok": true, "status": gw.console_status(&paths) })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/zcode/path" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let path = v.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let _g = crate::store_guard();
+            let mut s = store::load_settings(&paths);
+            s.zcode_path = store::normalize_zcode_path(&path);
+            let r = store::save_settings(&paths, &s);
+            drop(_g);
+            return match r {
+                Ok(()) => reply_json(req, 200, &json!({ "ok": true })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/accounts/export" => {
+            let accounts = match store::list_accounts(&paths) { Ok(a) => a, Err(e) => return reply_json(req, 400, &json!({ "error": e })) };
+            if accounts.is_empty() {
+                return reply_json(req, 400, &json!({ "error": "账号库是空的" }));
+            }
+            let mut payload = store::export_bundle_value(&accounts);
+            if !from_loopback { mask_json(&mut payload); }
+            let body = serde_json::to_string_pretty(&payload).unwrap_or_default() + "\n";
+            return reply_text(req, body, "zcode-accounts.json");
+        }
+        // ---- 邮箱库（mail.json） ----
+        "/proxy/mail" => {
+            let root = paths.store_dir();
+            let items: Vec<_> = crate::pool::load(&root).iter().map(|a| a.to_summary()).collect();
+            return reply_json(req, 200, &json!({ "accounts": items }));
+        }
+        "/proxy/mail/get" => {
+            let email = query_param(&url, "email").unwrap_or_default();
+            let root = paths.store_dir();
+            let accounts = crate::pool::load(&root);
+            return match crate::pool::find(&accounts, &email) {
+                Some(a) => reply_json_masked(req, 200, &json!({ "email": a.email, "password": a.password }), from_loopback),
+                None => reply_json(req, 404, &json!({ "error": "邮箱不在库里" })),
+            };
+        }
+        // 导入：接收浏览器上传的文本内容（不再走系统文件选择框）
+        "/proxy/mail/import" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let raw = v.get("text").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let root = paths.store_dir();
+            let r = {
+                let _g = crate::store_guard();
+                let mut accounts = crate::pool::load(&root);
+                let rep = crate::pool::import(&mut accounts, &raw, store::now_ts());
+                match crate::pool::save(&root, &accounts) { Ok(()) => Ok(rep), Err(e) => Err(e) }
+            };
+            return match r {
+                Ok(rep) => reply_json(req, 200, &json!({ "added": rep.added, "skipped": rep.skipped, "parsed": rep.total_parsed })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/mail/remove" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let email = v.get("email").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let root = paths.store_dir();
+            let r = {
+                let _g = crate::store_guard();
+                let mut accounts = crate::pool::load(&root);
+                let before = accounts.len();
+                accounts.retain(|a| !a.email.eq_ignore_ascii_case(email.trim()));
+                let removed = before - accounts.len();
+                match crate::pool::save(&root, &accounts) { Ok(()) => Ok(removed), Err(e) => Err(e) }
+            };
+            return match r {
+                Ok(n) => reply_json(req, 200, &json!({ "removed": n })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/mail/remove-many" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let emails: Vec<String> = v.get("emails").and_then(|x| x.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str()).map(|s| s.trim().to_ascii_lowercase()).collect())
+                .unwrap_or_default();
+            let root = paths.store_dir();
+            let r = {
+                let _g = crate::store_guard();
+                let mut accounts = crate::pool::load(&root);
+                let before = accounts.len();
+                accounts.retain(|a| !emails.contains(&a.email.trim().to_ascii_lowercase()));
+                let removed = before - accounts.len();
+                match crate::pool::save(&root, &accounts) { Ok(()) => Ok(removed), Err(e) => Err(e) }
+            };
+            return match r {
+                Ok(n) => reply_json(req, 200, &json!({ "removed": n })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/mail/mark-verified" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let email = v.get("email").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(true);
+            let note = v.get("note").and_then(|x| x.as_str()).map(str::to_string);
+            let root = paths.store_dir();
+            let r = {
+                let _g = crate::store_guard();
+                let mut accounts = crate::pool::load(&root);
+                if let Some(a) = crate::pool::find_mut(&mut accounts, &email) {
+                    if ok {
+                        a.status = crate::pool::STATUS_VERIFIED.to_string();
+                        a.verified_at = Some(store::now_ts());
+                        a.note = None;
+                    } else {
+                        a.status = crate::pool::STATUS_FAILED.to_string();
+                        a.note = note;
+                    }
+                    crate::pool::save(&root, &accounts)
+                } else {
+                    Ok(())
+                }
+            };
+            return match r {
+                Ok(()) => reply_json(req, 200, &json!({ "ok": true })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/mail/reset" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let email = v.get("email").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let root = paths.store_dir();
+            let r = { let _g = crate::store_guard(); crate::pool::set_status(&root, &email, crate::pool::STATUS_NEW, None) };
+            return match r {
+                Ok(()) => reply_json(req, 200, &json!({ "ok": true })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/mail/upsert" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let line = v.get("line").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let Some((email, password, client_id, refresh_token)) = crate::pool::parse_lines(&line).into_iter().next() else {
+                return reply_json(req, 400, &json!({ "error": "行格式不对，应为 email----password----client_id----refresh_token" }));
+            };
+            let root = paths.store_dir();
+            let r = {
+                let _g = crate::store_guard();
+                let mut accounts = crate::pool::load(&root);
+                let updated = if let Some(a) = crate::pool::find_mut(&mut accounts, &email) {
+                    a.password = password;
+                    a.client_id = client_id;
+                    a.refresh_token = refresh_token;
+                    a.status = crate::pool::STATUS_NEW.to_string();
+                    a.note = None;
+                    true
+                } else {
+                    accounts.push(crate::pool::MailAccount {
+                        email: email.clone(),
+                        password,
+                        client_id,
+                        refresh_token,
+                        status: crate::pool::STATUS_NEW.to_string(),
+                        verified_at: None,
+                        note: None,
+                        created_at: store::now_ts(),
+                    });
+                    false
+                };
+                match crate::pool::save(&root, &accounts) { Ok(()) => Ok(updated), Err(e) => Err(e) }
+            };
+            return match r {
+                Ok(updated) => reply_json(req, 200, &json!({ "email": email, "updated": updated })),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        "/proxy/mail/export" => {
+            let root = paths.store_dir();
+            let accounts = crate::pool::load(&root);
+            if accounts.is_empty() {
+                return reply_json(req, 400, &json!({ "error": "邮箱库是空的" }));
+            }
+            let body: String = if from_loopback {
+                accounts.iter()
+                    .map(|a| format!("{}----{}----{}----{}\n", a.email, a.password, a.client_id, a.refresh_token))
+                    .collect()
+            } else {
+                // 非回环：导出行里的凭据也打码，别让局域网把密码/token 整份拉走
+                accounts.iter()
+                    .map(|a| format!("{}----{}----{}----{}\n", a.email, mask_secret(&a.password), a.client_id, mask_secret(&a.refresh_token)))
+                    .collect()
+            };
+            return reply_text(req, body, "mailboxes.txt");
+        }
+        // 邮箱管理：看收件箱正文（复用 graph，顺手刷新 refresh_token）
+        "/proxy/mail/messages" => {
+            let email = query_param(&url, "email").unwrap_or_default();
+            let top = query_param(&url, "top").and_then(|v| v.parse::<usize>().ok()).unwrap_or(15);
+            let root = paths.store_dir();
+            let accounts = crate::pool::load(&root);
+            let acc = match crate::pool::find(&accounts, &email) {
+                Some(a) => a.clone(),
+                None => return reply_json(req, 404, &json!({ "error": "邮箱不在库里" })),
+            };
+            let (msgs, new_rt) = match crate::graph::fetch_messages(&acc.client_id, &acc.refresh_token, top) {
+                Ok(v) => v,
+                Err(e) => {
+                    if crate::graph::is_credential_error(&e) {
+                        let _ = crate::pool::set_status(&root, &email, crate::pool::STATUS_INVALID, Some("需要重新授权".to_string()));
+                    }
+                    return reply_json(req, 400, &json!({ "error": e }));
+                }
+            };
+            if let Some(rt) = new_rt {
+                let _g = crate::store_guard();
+                let mut accounts = crate::pool::load(&root);
+                if let Some(a) = crate::pool::find_mut(&mut accounts, &email) {
+                    a.refresh_token = rt;
+                    let _ = crate::pool::save(&root, &accounts);
+                }
+            }
+            let out: Vec<Value> = msgs.iter().map(|m| json!({
+                "id": m.id, "subject": m.subject, "from": m.from,
+                "receivedAt": m.received_at, "preview": m.preview, "body": m.body,
+            })).collect();
+            return reply_json(req, 200, &json!({ "messages": out, "count": out.len() }));
         }
         _ => {}
     }

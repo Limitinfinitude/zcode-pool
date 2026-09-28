@@ -335,6 +335,125 @@ pub fn fetch_links(
     ))
 }
 
+/// 收件箱里的一封邮件（控制台「邮箱管理」页用）：给的是**正文纯文本**，
+/// 前端直接当文本渲染，不做 HTML 注入。
+pub struct MailMessage {
+    pub id: String,
+    pub subject: String,
+    pub from: String,
+    pub received_at: Option<String>,
+    pub preview: String,
+    pub body: String,
+}
+
+/// 把邮件 HTML 正文压成纯文本：去掉标签、丢掉 `<style>`/`<script>` 里的内容、
+/// 解几个常见实体。够「看正文 / 找链接」用，不做完整 HTML 解析。
+fn html_to_text(s: &str) -> String {
+    let lower = s.to_ascii_lowercase();
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    while i < s.len() {
+        if bytes[i] == b'<' {
+            // 跳过整个 <style>/<script> 块（含内容），它们会污染正文
+            let rest = &lower[i..];
+            let skip_tag = if rest.starts_with("<style") {
+                Some("</style>")
+            } else if rest.starts_with("<script") {
+                Some("</script>")
+            } else {
+                None
+            };
+            if let Some(end_tag) = skip_tag {
+                if let Some(pos) = rest.find(end_tag) {
+                    i += pos + end_tag.len();
+                    out.push(' ');
+                    continue;
+                }
+            }
+            // 普通标签：跳到 '>' 之后，补个空格避免相邻文字粘连
+            match s[i..].find('>') {
+                Some(pos) => {
+                    i += pos + 1;
+                    out.push(' ');
+                }
+                None => break,
+            }
+            continue;
+        }
+        let ch = s[i..].chars().next().unwrap_or(' ');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 拉取收件箱最近若干封邮件（含正文）。和 `fetch_links` 一样会回落刷新的 refresh_token。
+pub fn fetch_messages(
+    client_id: &str,
+    refresh_token: &str,
+    top: usize,
+) -> Result<(Vec<MailMessage>, Option<String>), String> {
+    let take = top.clamp(1, 25);
+    let tok = exchange_token(client_id, refresh_token)?;
+    let url = format!(
+        "{GRAPH}/me/messages?$top={take}&$select=id,subject,from,receivedDateTime,bodyPreview,body"
+    );
+    let body = agent()
+        .get(&url)
+        .set("Authorization", &format!("Bearer {}", tok.access_token))
+        .call()
+        .map_err(|e| http_err(&crate::i18n::tr("err.graph.list"), e))?
+        .into_string()
+        .unwrap_or_default();
+    let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+
+    let mut out = Vec::new();
+    if let Some(arr) = v.get("value").and_then(Value::as_array) {
+        for m in arr {
+            let get = |p: &str| m.get(p).and_then(Value::as_str).unwrap_or("").to_string();
+            let subject = {
+                let s = get("subject");
+                if s.is_empty() { "(无主题)".to_string() } else { s }
+            };
+            let from = m
+                .pointer("/from/emailAddress/address")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let raw_body = m.pointer("/body/content").and_then(Value::as_str).unwrap_or("");
+            let mut text = html_to_text(raw_body);
+            if text.len() > 12000 {
+                text.truncate(12000);
+                text.push_str(" …");
+            }
+            let preview = {
+                let p = get("bodyPreview");
+                p.chars().take(200).collect::<String>()
+            };
+            out.push(MailMessage {
+                id: get("id"),
+                subject,
+                from,
+                received_at: m.get("receivedDateTime").and_then(Value::as_str).map(String::from),
+                preview,
+                body: text,
+            });
+        }
+    }
+
+    Ok((out, tok.new_refresh_token))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

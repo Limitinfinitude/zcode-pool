@@ -14,17 +14,23 @@ pub fn init(base: &Path) {
     }
 }
 
-/// 读日志尾部若干行（控制台「日志」页用）。日志最大 256KB，整体读进来再切够用了。
-pub fn tail(n: usize) -> Vec<String> {
+/// 分页读日志（控制台「日志」页用）。`offset` 从**最新一条往回数**（0 = 最后一行），
+/// 返回 `[offset, offset + limit)` 这一段，内部按时间正序（旧 -> 新）。
+/// 同时返回总行数，前端好算页数。日志最大 256KB，整体读进来再切够用了。
+pub fn tail_page(offset: usize, limit: usize) -> (Vec<String>, usize) {
     let Some(path) = LOG_PATH.get() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let Ok(s) = std::fs::read_to_string(path) else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
-    let mut v: Vec<String> = s.lines().rev().take(n).map(str::to_string).collect();
-    v.reverse();
-    v
+    let all: Vec<&str> = s.lines().collect();
+    let total = all.len();
+    let limit = limit.max(1);
+    let end = total.saturating_sub(offset);
+    let start = end.saturating_sub(limit);
+    let lines = all[start..end].iter().map(|l| l.to_string()).collect();
+    (lines, total)
 }
 
 pub fn log(flow: &str, event: &str, detail: &str) {
