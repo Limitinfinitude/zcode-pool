@@ -7,6 +7,10 @@ const SCOPE: &str = "https://graph.microsoft.com/.default";
 const TIMEOUT_SECS: u64 = 25;
 const MAX_TEXT: usize = 512 * 1024;
 const MAX_LINKS: usize = 5;
+/// 单封邮件返回给控制台的 HTML 上限（原样保留版式，别压成纯文本）
+const MAX_HTML: usize = 256 * 1024;
+/// 单封邮件最多抠多少条链接
+const MAX_EXTRACT: usize = 40;
 
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
@@ -335,19 +339,31 @@ pub fn fetch_links(
     ))
 }
 
-/// 收件箱里的一封邮件（控制台「邮箱管理」页用）：给的是**正文纯文本**，
-/// 前端直接当文本渲染，不做 HTML 注入。
+/// 从邮件 HTML 里抠出来的一条链接：`url` 是目标，`text` 是 `<a>` 的显示文字
+/// （裸链接没有文字，空串）。控制台把这几条单独列出来，点一下就能复制激活链接。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MailLink {
+    pub url: String,
+    #[serde(default)]
+    pub text: String,
+}
+
+/// 收件箱里的一封邮件（控制台「邮箱管理」页用）：
+/// **同时**给原文 `html`、纯文本兜底 `text`、以及从 HTML 里抠出来的 `links`。
+/// 不再把 HTML 压成纯文本 —— 那些邮件的用处就是取激活/验证链接，压完链接就没了。
 pub struct MailMessage {
     pub id: String,
     pub subject: String,
     pub from: String,
     pub received_at: Option<String>,
     pub preview: String,
-    pub body: String,
+    pub html: String,
+    pub text: String,
+    pub links: Vec<MailLink>,
 }
 
 /// 把邮件 HTML 正文压成纯文本：去掉标签、丢掉 `<style>`/`<script>` 里的内容、
-/// 解几个常见实体。够「看正文 / 找链接」用，不做完整 HTML 解析。
+/// 解几个常见实体。只当 `text` 兜底用（比如邮件只有 HTML 时给个纯文本预览）。
 fn html_to_text(s: &str) -> String {
     let lower = s.to_ascii_lowercase();
     let mut out = String::with_capacity(s.len());
@@ -397,7 +413,190 @@ fn html_to_text(s: &str) -> String {
         .join(" ")
 }
 
-/// 拉取收件箱最近若干封邮件（含正文）。和 `fetch_links` 一样会回落刷新的 refresh_token。
+/// 按字节上限截断，但**不切碎 UTF-8 字符**（切一半会 panic）
+fn truncate_bytes(s: &mut String, max: usize) {
+    if s.len() <= max {
+        return;
+    }
+    let mut cut = max;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    s.truncate(cut);
+    s.push_str(" …");
+}
+
+/// 找 `http(s)://` 在字符串里的最早出现位置
+fn next_http(hay: &str) -> Option<usize> {
+    match (hay.find("https://"), hay.find("http://")) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+/// URL 的结束位置：空白或这些「不可能出现在 URL 里」的字符
+fn url_end(s: &str) -> usize {
+    s.find(|c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '"' | '\'' | '<' | '>' | ')' | ']' | '}' | '\\' | '`' | '，' | '。' | '）' | '、' | '“' | '”'
+            )
+    })
+    .unwrap_or(s.len())
+}
+
+fn trim_url_tail(mut link: String) -> String {
+    while let Some(last) = link.chars().last() {
+        if matches!(last, '.' | ',' | ';' | ':' | '!' | '?' | '&' | '"' | '\'') {
+            link.pop();
+        } else {
+            break;
+        }
+    }
+    link
+}
+
+/// 扫出文本里所有 `http(s)` URL（不限定主机）。裸链接用，去重留给调用方。
+fn scan_urls(hay: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut from = 0usize;
+    while from < hay.len() {
+        let Some(rel) = next_http(&hay[from..]) else {
+            break;
+        };
+        let start = from + rel;
+        let rest = &hay[start..];
+        let end = url_end(rest);
+        let link = trim_url_tail(html_unescape(&rest[..end]));
+        if link.len() > 8 {
+            out.push(link);
+        }
+        from = start + end.max(1);
+    }
+    out
+}
+
+/// 从一段开标签里取属性值（支持 `"`、`'`、裸值；大小写不敏感）
+fn attr_value(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let mut from = 0usize;
+    while from + name.len() <= lower.len() {
+        let rel = lower[from..].find(name)?;
+        let at = from + rel;
+        let before_ok = at == 0 || !lower.as_bytes()[at - 1].is_ascii_alphanumeric();
+        let after = &tag[at + name.len()..];
+        let trimmed = after.trim_start();
+        let Some(rest) = trimmed.strip_prefix('=') else {
+            from = at + name.len();
+            continue;
+        };
+        if !before_ok {
+            from = at + name.len();
+            continue;
+        }
+        let rest = rest.trim_start();
+        let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'');
+        let body = if quote.is_some() { &rest[1..] } else { rest };
+        let end = quote
+            .map(|q| body.find(q).unwrap_or(body.len()))
+            .unwrap_or_else(|| body.find(|c: char| c == '>' || c.is_whitespace()).unwrap_or(body.len()));
+        let val = &body[..end];
+        if !val.is_empty() {
+            return Some(val.to_string());
+        }
+        from = at + name.len();
+    }
+    None
+}
+
+/// 去掉标签留下可读文字（给 `<a>` 的显示文字用）
+fn strip_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for ch in s.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                out.push(' ');
+            }
+            c if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    html_unescape(out.trim())
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 抠 `<a href="http(s)...">显示文字</a>`，返回 `(url, 文字)`。
+/// 只认 http(s)，`mailto:` 之类不要。
+fn extract_anchors(html: &str) -> Vec<(String, String)> {
+    let lower = html.to_ascii_lowercase();
+    let lb = lower.as_bytes();
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut i = 0usize;
+    while i + 2 < html.len() {
+        // 定位 "<a" 且后面是空白或 '>'（排除 <abbr> 这类）
+        let is_a = lb[i] == b'<'
+            && lb[i + 1] == b'a'
+            && matches!(lb[i + 2], b' ' | b'\t' | b'\r' | b'\n' | b'>');
+        if !is_a {
+            i += 1;
+            continue;
+        }
+        let Some(p) = html[i..].find('>') else { break };
+        let tag_end = i + p;
+        let open = &html[i..=tag_end];
+        if let Some(href) = attr_value(open, "href") {
+            let url = html_unescape(&href);
+            if url.starts_with("http://") || url.starts_with("https://") {
+                let inner_start = tag_end + 1;
+                let close = lower[inner_start..]
+                    .find("</a>")
+                    .map(|q| inner_start + q)
+                    .unwrap_or(inner_start);
+                let text = strip_tags(&html[inner_start..close]);
+                let text: String = text.chars().take(160).collect();
+                out.push((url, text));
+                i = close + 4;
+                continue;
+            }
+        }
+        i = tag_end + 1;
+    }
+    out
+}
+
+/// 汇总一封邮件的所有链接：先 `<a href>`（带显示文字），再补裸 http(s)。
+/// 按 url 去重、保文档顺序。
+pub fn extract_links(html: &str) -> Vec<MailLink> {
+    let mut out: Vec<MailLink> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (url, text) in extract_anchors(html) {
+        if seen.insert(url.clone()) {
+            out.push(MailLink { url, text });
+        }
+        if out.len() >= MAX_EXTRACT {
+            return out;
+        }
+    }
+    for url in scan_urls(html) {
+        if seen.insert(url.clone()) {
+            out.push(MailLink { url, text: String::new() });
+        }
+        if out.len() >= MAX_EXTRACT {
+            break;
+        }
+    }
+    out
+}
+
+/// 拉取收件箱最近若干封邮件（含原文 HTML、纯文本、链接）。和 `fetch_links` 一样会回落刷新的 refresh_token。
 pub fn fetch_messages(
     client_id: &str,
     refresh_token: &str,
@@ -431,11 +630,11 @@ pub fn fetch_messages(
                 .unwrap_or("")
                 .to_string();
             let raw_body = m.pointer("/body/content").and_then(Value::as_str).unwrap_or("");
+            let mut html = raw_body.to_string();
+            truncate_bytes(&mut html, MAX_HTML);
             let mut text = html_to_text(raw_body);
-            if text.len() > 12000 {
-                text.truncate(12000);
-                text.push_str(" …");
-            }
+            truncate_bytes(&mut text, 12000);
+            let links = extract_links(raw_body);
             let preview = {
                 let p = get("bodyPreview");
                 p.chars().take(200).collect::<String>()
@@ -446,7 +645,9 @@ pub fn fetch_messages(
                 from,
                 received_at: m.get("receivedDateTime").and_then(Value::as_str).map(String::from),
                 preview,
-                body: text,
+                html,
+                text,
+                links,
             });
         }
     }
@@ -480,5 +681,33 @@ mod tests {
             dedup_keep_order(scan_links(hay)),
             vec!["https://chat.z.ai/b", "https://chat.z.ai/a"]
         );
+    }
+
+    #[test]
+    fn extracts_anchor_with_text_and_bare_url() {
+        let html = r#"<p>点<a href="https://chat.z.ai/auth/verify_email?token=abc&amp;email=a%40b.com">验证邮箱</a></p>
+        <p>或访问 https://chat.z.ai/help 看看</p>"#;
+        let links = extract_links(html);
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].url, "https://chat.z.ai/auth/verify_email?token=abc&email=a%40b.com");
+        assert_eq!(links[0].text, "验证邮箱");
+        assert_eq!(links[1].url, "https://chat.z.ai/help");
+        assert_eq!(links[1].text, "");
+    }
+
+    #[test]
+    fn dedups_anchor_and_bare_same_url() {
+        let html = r#"<a href="https://chat.z.ai/x">go</a> 以及 https://chat.z.ai/x"#;
+        let links = extract_links(html);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].text, "go");
+    }
+
+    #[test]
+    fn skips_mailto_and_keeps_http_only() {
+        let html = r#"<a href="mailto:support@z.ai">写信</a><a href="https://z.ai/a">a</a>"#;
+        let links = extract_links(html);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].url, "https://z.ai/a");
     }
 }

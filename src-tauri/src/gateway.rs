@@ -156,6 +156,9 @@ struct Inner {
 #[derive(Clone, Default)]
 pub struct Gateway {
     inner: Arc<Mutex<Inner>>,
+    /// exe 的 AppHandle。反代跑在独立线程里，默认碰不到窗口/托盘；
+    /// `lib.rs` 的 setup 钩子把它塞进来，网页就能触发「弹验证码窗」「刷托盘」这类 exe 侧动作。
+    app: Arc<std::sync::OnceLock<tauri::AppHandle>>,
 }
 
 struct Candidate {
@@ -177,6 +180,24 @@ impl Gateway {
             i.model_mode = MODEL_FOLLOW.to_string();
         }
         g
+    }
+
+    /// setup 钩子把 AppHandle 交给反代线程（只塞一次）
+    pub fn set_app(&self, app: tauri::AppHandle) {
+        let _ = self.app.set(app);
+    }
+
+    fn app(&self) -> Option<tauri::AppHandle> {
+        self.app.get().cloned()
+    }
+
+    /// 网页改了账号（切换/删除/重命名/新建）后，把托盘 tooltip/菜单和 exe 面板同步一下。
+    /// 没拿到 AppHandle 就静默跳过 —— 顶多是 exe 面板慢半拍，不影响网页操作本身。
+    fn sync_exe(&self) {
+        if let Some(app) = self.app() {
+            crate::rebuild_tray(&app);
+            crate::emit_state_changed(&app);
+        }
     }
 
     /// 控制台 / 对话页用的轻量状态。
@@ -2310,7 +2331,7 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
             let name = v.get("name").and_then(|x| x.as_str()).map(str::to_string).filter(|s| !s.trim().is_empty());
             let r = { let _g = crate::store_guard(); store::capture_current(&paths, name) };
             return match r {
-                Ok(a) => reply_json_masked(req, 200, &json!(a), from_loopback),
+                Ok(a) => { gw.sync_exe(); reply_json_masked(req, 200, &json!(a), from_loopback) }
                 Err(e) => reply_json(req, 400, &json!({ "error": e })),
             };
         }
@@ -2320,7 +2341,7 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
             let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
             let r = { let _g = crate::store_guard(); store::rename_account(&paths, &id, &name) };
             return match r {
-                Ok(a) => reply_json_masked(req, 200, &json!(a), from_loopback),
+                Ok(a) => { gw.sync_exe(); reply_json_masked(req, 200, &json!(a), from_loopback) }
                 Err(e) => reply_json(req, 400, &json!({ "error": e })),
             };
         }
@@ -2329,7 +2350,7 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
             let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
             let r = { let _g = crate::store_guard(); store::delete_account(&paths, &id) };
             return match r {
-                Ok(()) => reply_json(req, 200, &json!({ "ok": true, "status": gw.console_status(&paths) })),
+                Ok(()) => { gw.sync_exe(); reply_json(req, 200, &json!({ "ok": true, "status": gw.console_status(&paths) })) }
                 Err(e) => reply_json(req, 400, &json!({ "error": e })),
             };
         }
@@ -2338,7 +2359,7 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
             let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
             let r = { let _g = crate::store_guard(); store::update_account_from_live(&paths, &id) };
             return match r {
-                Ok(a) => reply_json_masked(req, 200, &json!(a), from_loopback),
+                Ok(a) => { gw.sync_exe(); reply_json_masked(req, 200, &json!(a), from_loopback) }
                 Err(e) => reply_json(req, 400, &json!({ "error": e })),
             };
         }
@@ -2350,12 +2371,13 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
             let restart = v.get("restart").and_then(|x| x.as_bool()).unwrap_or(true);
             let r = { let _g = crate::store_guard(); store::switch_to(&paths, &id, force, restart) };
             return match r {
-                Ok(s) => reply_json(req, 200, &json!({ "result": s, "status": gw.console_status(&paths) })),
+                Ok(s) => { gw.sync_exe(); reply_json(req, 200, &json!({ "result": s, "status": gw.console_status(&paths) })) }
                 Err(e) => reply_json(req, 400, &json!({ "error": e })),
             };
         }
-        // 领取套餐：只做「预览 + 激活刷新」。真正的提交要弹滑块验证码窗，
-        // 浏览器给不了那个环境 —— 那一步留在 exe。
+        // 领取套餐三步：预览 / 激活刷新 / 真正提交。
+        // 提交要弹 exe 的滑块验证码窗 —— 靠 setup 塞进来的 AppHandle 把窗拉起来，
+        // 用户在原生窗里滑完，结果落在 claim_captcha_submit 里，网页轮询 claim-result 取。
         "/proxy/account/claim-preview" => {
             let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
             let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -2382,6 +2404,25 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
                 Ok(plans) => reply_json(req, 200, &json!({ "plans": plans, "activated": activated, "activationError": activation_error })),
                 Err(e) => reply_json(req, 400, &json!({ "error": e })),
             };
+        }
+        // 真正提交领取：把 exe 的滑块验证码窗拉起来，用户在原生窗里滑。
+        // 提交本身由 captcha.js 走 claim_captcha_submit 完成，网页这边只负责开窗 + 轮询结果。
+        "/proxy/account/claim-start" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let plan_id = v.get("plan_id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let auto = v.get("auto").and_then(|x| x.as_bool()).unwrap_or(false);
+            let Some(app) = gw.app() else {
+                return reply_json(req, 400, &json!({ "error": "反代还没拿到 AppHandle（窗口环境未就绪），这一步暂时只能在 exe 面板做" }));
+            };
+            return match crate::proxy_claim_start(&app, id, plan_id, auto) {
+                Ok(v) => reply_json(req, 200, &v),
+                Err(e) => reply_json(req, 400, &json!({ "error": e })),
+            };
+        }
+        // 领取结果：captcha 窗提交后落在这里（含 accountId / 成功或失败原因），网页轮询
+        "/proxy/account/claim-result" => {
+            return reply_json(req, 200, &crate::claim_last_result());
         }
         // ZCode 进程 / 路径：文件对话框浏览器给不了，这里只显示 + 手填提交
         "/proxy/zcode/launch" => {
@@ -2610,9 +2651,13 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
                     let _ = crate::pool::save(&root, &accounts);
                 }
             }
+            // 原文 html + 纯文本兜底 + 抠出来的链接，前端在沙箱 iframe 里渲染原文，
+            // 链接单列出来点/复制（取激活链接用）。`body` 保留成 text 兼容老前端。
             let out: Vec<Value> = msgs.iter().map(|m| json!({
                 "id": m.id, "subject": m.subject, "from": m.from,
-                "receivedAt": m.received_at, "preview": m.preview, "body": m.body,
+                "receivedAt": m.received_at, "preview": m.preview,
+                "html": m.html, "text": m.text, "body": m.text,
+                "links": m.links,
             })).collect();
             return reply_json(req, 200, &json!({ "messages": out, "count": out.len() }));
         }

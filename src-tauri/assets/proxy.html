@@ -133,6 +133,41 @@
   .histo .b span{font-size:10px;color:var(--dim2);white-space:nowrap}
   .histo .b em{font-size:10.5px;color:var(--dim);font-style:normal;font-variant-numeric:tabular-nums}
   .foot-note{color:var(--dim2);font-size:11.5px;padding:12px 16px;border-top:1px solid var(--line2);line-height:1.75}
+
+  /* ---------- 额度条 / 汇总 ---------- */
+  .qbar{height:7px;border-radius:5px;background:var(--card2);border:1px solid var(--line);overflow:hidden;
+        flex:1;min-width:90px;display:block}
+  .qbar>i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--ok),color-mix(in srgb,var(--ok) 50%,var(--acc)));
+          transition:width .25s}
+  .qbar.warn>i{background:var(--warn)}
+  .qbar.danger>i{background:var(--err)}
+  .qpct{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;min-width:40px;text-align:right;flex:none}
+  .q-row{display:flex;align-items:center;gap:10px;padding:3.5px 0}
+  .q-row .ql{width:150px;flex:none;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .q-row .qn{font-size:11.5px;color:var(--dim2);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:96px;text-align:right}
+  .q-row .qr{font-size:11px;color:var(--dim2);white-space:nowrap;min-width:78px;text-align:right}
+  .acct-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(370px,1fr));gap:12px}
+  .acct-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
+  .acct-card.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
+  .acct-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .acct-hd b{font-size:13.5px}
+  .acct-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;border-top:1px solid var(--line2);padding-top:10px}
+  .sumrow{display:flex;align-items:center;gap:12px;padding:5px 0}
+  .sumrow .sl{width:140px;flex:none;font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---------- 邮件原文 / 链接 ---------- */
+  .lks{margin:10px 0 12px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card2)}
+  .lks .hd{padding:7px 11px;font-size:11.5px;color:var(--dim);border-bottom:1px solid var(--line2)}
+  .lk{display:flex;align-items:center;gap:9px;padding:8px 11px;border-bottom:1px solid var(--line2)}
+  .lk:last-child{border-bottom:none}
+  .lk .lt{flex:1;min-width:0}
+  .lk .lt .t{font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lk .lt .u{font-size:11px;color:var(--dim2);font-family:ui-monospace,Consolas,monospace;display:block;
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lk a{color:var(--acc);text-decoration:none;font-size:12px;flex:none}
+  .lk a:hover{text-decoration:underline}
+  .mframe{width:100%;height:540px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .mtoggle{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);margin:2px 0 10px;cursor:pointer;user-select:none}
 </style>
 </head>
 <body>
@@ -179,6 +214,9 @@ window.onerror = (m, src, l) => rep("onerror", m + " @line " + l);
 window.addEventListener("unhandledrejection", (e) => rep("reject", (e.reason && (e.reason.stack || e.reason.message || e.reason)) || "?"));
 rep("loaded", location.href);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// srcdoc 属性值必须整体转义，否则邮件里的 " 会把 iframe 属性撑破
+const escSrcdoc = (s) => esc(s);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const num = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
 const rate = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : (Math.round(n * 10) / 10).toString());
 const hhmmss = (t) => new Date(t).toLocaleTimeString("zh-CN", { hour12: false });
@@ -196,10 +234,16 @@ let STATS = null;
 const LOGP = { page: 0, limit: 50, total: 0, lines: [], loading: false };
 // 账号页 / 邮箱页 / 邮箱管理页的缓存
 let ACC = null, ACC_DETAIL = null, ACC_DETAIL_ID = "";
+// 账号页：额度缓存（id -> {data|error|loading}）、全量查询进度、是否已自动查过一轮
+const QMAP = {};
+const QLOAD = { running: false, done: 0, total: 0 };
+let QAUTO = false;
+// 领取流程状态（点「领取」→ exe 弹滑块窗 → 回来轮询结果）
+let CLAIM = { id: "", plan: "", running: false, msg: "", ok: null, startedAt: 0 };
 let MAIL = null, MAIL_SEL = new Set();
 // 邮箱管理页支持 ?email=xxx 预选（方便从别处直接链进来看某封信）
 const Q_EMAIL = new URLSearchParams(location.search).get("email") || "";
-let MBOX = { email: Q_EMAIL, data: null, sel: -1, err: "" };
+let MBOX = { email: Q_EMAIL, data: null, sel: -1, err: "", loading: false, showImg: false };
 const UFILTER = { acct: "", model: "", fail: false };
 const HIST = [];
 const NOISE = ["page-disk", "mint-window", "mint-load", "已存在"];
@@ -604,27 +648,130 @@ function idLabel(a) {
   const id = a.identity || {};
   return id.display_name || id.username || id.email || id.user_id || "—";
 }
+function accountName(id) {
+  const a = (ACC && ACC.accounts || []).find((x) => x.id === id);
+  return a ? a.name : id;
+}
+/* ---------- 额度条 / 汇总 ---------- */
+function fmtTok(n) {
+  if (n == null) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + "M";
+  if (n >= 1e3) return Math.round(n / 1e3) + "K";
+  return String(Math.round(n));
+}
+function pctUsed(it) {
+  if (!it) return null;
+  if (it.percent_used != null) return Math.min(100, Math.max(0, it.percent_used));
+  if (it.total != null && it.total > 0 && it.remaining != null) {
+    return Math.min(100, Math.max(0, (1 - it.remaining / it.total) * 100));
+  }
+  return null;
+}
+// 条形宽度画「剩余」比例（直观：条越短越该省着用）
+function qbarHtml(used) {
+  const cls = used == null ? "" : used >= 90 ? " danger" : used >= 70 ? " warn" : "";
+  const rem = used == null ? 100 : 100 - used;
+  const txt = used == null ? "--" : rem.toFixed(0) + "%";
+  return '<span class="qbar' + cls + '"><i style="width:' + rem + '%"></i></span><span class="qpct">' + txt + "</span>";
+}
+function qrowHtml(name, it) {
+  const nums = it && it.total != null && it.remaining != null ? fmtTok(it.remaining) + " / " + fmtTok(it.total) : "";
+  const reset = (it && (it.reset || it.period_end)) || "";
+  const title = [name, nums ? "剩 " + nums : "", reset].filter(Boolean).join(" · ");
+  return '<div class="q-row" title="' + esc(title) + '"><span class="ql">' + esc(name) + "</span>" +
+    qbarHtml(pctUsed(it)) + '<span class="qn">' + esc(nums || "—") + '</span><span class="qr">' + esc(reset) + "</span></div>";
+}
+// 一个号的额度明细：套餐头 + 按模型一条
+function quotaRowsHtml(q) {
+  if (!q || q.is_empty) return '<div style="color:var(--dim2);font-size:12px;padding:6px 0">没有额度数据</div>';
+  let html = "";
+  const head = (q.plans && q.plans[0]) || q;
+  const tier = head.tier || q.plan_tier;
+  const exp = head.expire || q.plan_expire;
+  if (tier || exp) {
+    html += '<div style="font-size:11.5px;color:var(--dim2);margin-bottom:5px">' +
+      esc(tier || "") + (exp ? (tier ? " · " : "") + "至 " + esc(exp) : "") + "</div>";
+  }
+  const items = q.items || [];
+  html += items.length ? items.map((it) => qrowHtml(it.name || "?", it)).join("") : qrowHtml("总用量", q);
+  return html;
+}
+function accountCard(a) {
+  const q = QMAP[a.id];
+  let body;
+  if (q && q.loading) body = '<div style="color:var(--dim2);font-size:12px;padding:6px 0">查询额度中…</div>';
+  else if (q && q.error) body = '<div style="color:var(--err);font-size:12px;padding:6px 0">' + esc(q.error) + "</div>";
+  else if (q && q.data) body = quotaRowsHtml(q.data);
+  else body = '<div style="color:var(--dim2);font-size:12px;padding:6px 0">还没查询额度</div>';
+  return '<div class="acct-card' + (a.is_active ? " on" : "") + '">' +
+    '<div class="acct-hd"><b>' + esc(a.name) + "</b>" + (a.is_active ? '<span class="tag ok">当前</span>' : "") +
+      '<span class="grow"></span><span style="color:var(--dim2);font-size:11px">' + esc(idLabel(a)) + "</span></div>" +
+    "<div>" + body + "</div>" +
+    '<div class="acct-acts">' +
+      '<button class="mini" data-act-quota="' + esc(a.id) + '">◇ 查询额度</button>' +
+      '<button class="mini" data-act-claim="' + esc(a.id) + '">✦ 查资格/领取</button>' +
+      (a.is_active ? "" : '<button class="mini" data-act-switch="' + esc(a.id) + '">⇄ 切换</button>') +
+      '<button class="mini" data-act-upd="' + esc(a.id) + '">⤓ 更新</button>' +
+      '<button class="mini" data-act-rn="' + esc(a.id) + '">✎ 重命名</button>' +
+      '<button class="mini" data-act-del="' + esc(a.id) + '">✕ 删除</button>' +
+    "</div></div>";
+}
+// 顶部汇总：所有已查号的总剩余 / 总量 / 覆盖几个号 / 按模型聚合
+function quotaSummaryHtml() {
+  let accounts = 0, total = 0, remaining = 0, hasTotal = false;
+  const byModel = new Map();
+  for (const id of Object.keys(QMAP)) {
+    const q = QMAP[id];
+    if (!q || !q.data || q.data.is_empty) continue;
+    const d = q.data;
+    accounts++;
+    if (d.total != null) {
+      total += d.total;
+      hasTotal = true;
+      if (d.remaining != null) remaining += d.remaining;
+    }
+    for (const it of d.items || []) {
+      const k = it.name || "?";
+      const m = byModel.get(k) || { total: 0, remaining: 0, hasT: false };
+      if (it.total != null) {
+        m.total += it.total;
+        m.hasT = true;
+        if (it.remaining != null) m.remaining += it.remaining;
+      }
+      byModel.set(k, m);
+    }
+  }
+  const all = (ACC && ACC.accounts || []).length;
+  const cards = '<div class="cards">' +
+    '<div class="card"><div class="lb">已查额度账号</div><div class="n">' + accounts + '<small>/ ' + all + "</small></div>" +
+      '<div class="foot">点账号卡片的「查询额度」</div></div>' +
+    '<div class="card"><div class="lb">额度总量</div><div class="n">' + (hasTotal ? fmtTok(total) : "—") + "</div>" +
+      '<div class="foot">已查账号合计</div></div>' +
+    '<div class="card"><div class="lb">剩余总量</div><div class="n" style="color:var(--ok)">' + (hasTotal ? fmtTok(remaining) : "—") + "</div>" +
+      '<div class="foot">剩余 / 总量</div></div>' +
+    '<div class="card"><div class="lb">涉及模型</div><div class="n">' + byModel.size + "</div>" +
+      '<div class="foot">按模型聚合</div></div></div>';
+  const rows = [...byModel.entries()]
+    .sort((a, b) => (b[1].total || 0) - (a[1].total || 0))
+    .map(([k, m]) => {
+      const used = m.hasT && m.total > 0 ? (1 - m.remaining / m.total) * 100 : null;
+      const nums = m.hasT ? fmtTok(m.remaining) + " / " + fmtTok(m.total) : "";
+      return '<div class="sumrow"><span class="sl" title="' + esc(k) + '">' + esc(k) + "</span>" + qbarHtml(used) +
+        '<span class="qn" style="min-width:120px;text-align:right">' + esc(nums || "—") + "</span></div>";
+    })
+    .join("");
+  return '<div class="panel"><h2>额度汇总 <span class="grow"></span><span style="color:var(--dim2);font-weight:400">' +
+    (QLOAD.running ? "查询中 " + QLOAD.done + "/" + QLOAD.total : "所有号合计") + "</span></h2>" +
+    '<div class="body">' + cards +
+      (rows ? '<div style="margin-top:12px">' + rows + "</div>"
+            : '<div style="color:var(--dim2);font-size:12px;margin-top:8px">还没有额度数据 —— 点账号卡片上的「查询额度」，或上面的「查询全部额度」</div>') +
+    "</div></div>";
+}
 function viewAcct() {
   const st = ACC || {};
   const list = st.accounts || [];
-  const rows = list.map((a) => {
-    const active = a.is_active;
-    return "<tr>" +
-      '<td class="mono">' + esc(a.name) + (active ? ' <span class="tag ok">当前</span>' : "") + "</td>" +
-      '<td>' + esc(idLabel(a)) + "</td>" +
-      "<td>" + (a.has_config ? '<span class="tag info">有配置</span> ' : "") +
-        (a.has_user_info ? '<span class="tag dim">有UID</span>' : "") + "</td>" +
-      '<td class="mono" style="color:var(--dim2);white-space:nowrap">' + esc(a.updated_at || a.created_at || "") + "</td>" +
-      '<td style="text-align:right;white-space:nowrap">' +
-        (active ? "" : '<button class="mini" data-act-switch="' + esc(a.id) + '">切换</button> ') +
-        '<button class="mini" data-act-quota="' + esc(a.id) + '">额度</button> ' +
-        '<button class="mini" data-act-claim="' + esc(a.id) + '">领取</button> ' +
-        '<button class="mini" data-act-upd="' + esc(a.id) + '">更新</button> ' +
-        '<button class="mini" data-act-rn="' + esc(a.id) + '">重命名</button> ' +
-        '<button class="mini" data-act-del="' + esc(a.id) + '">删除</button>' +
-      "</td></tr>";
-  }).join("");
-  return `
+  const grid = list.map(accountCard).join("");
+  const statCards = `
   <div class="cards">
     <div class="card"><div class="lb">账号数</div><div class="n">${list.length}</div>
       <div class="foot">${st.active_account_id ? "有当前登录" : "当前没有匹配的登录账号"}</div></div>
@@ -637,21 +784,21 @@ function viewAcct() {
     <div class="card"><div class="lb">存储目录</div>
       <div class="n mono" style="font-size:13px">…</div>
       <div class="foot mono" style="word-break:break-all">${esc(st.store_dir || "—")}</div></div>
-  </div>
-
+  </div>`;
+  return quotaSummaryHtml() + statCards + `
   <div class="panel"><h2>账号池 <span class="grow"></span>
     <span style="color:var(--dim2);font-weight:400">切换会关掉并重启 ZCode，会二次确认</span></h2>
     <div class="body" style="display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">
-      <button class="mini" data-acc-reload>刷新</button>
-      <button class="mini" data-acc-capture>从当前登录新建</button>
-      <button class="mini" data-acc-launch>启动 ZCode</button>
-      <button class="mini" data-acc-kill>关闭 ZCode</button>
-      <button class="mini" data-acc-live-quota>刷新额度缓存</button>
+      <button class="mini" data-acc-reload>⟳ 刷新</button>
+      <button class="mini" data-acc-capture>＋ 从当前登录新建</button>
+      <button class="mini" data-acc-launch>▶ 启动 ZCode</button>
+      <button class="mini" data-acc-kill>■ 关闭 ZCode</button>
+      <button class="mini" data-acc-live-quota>⟳ 刷新额度缓存</button>
+      <button class="mini" data-acc-all-quota>◇ 查询全部额度</button>
       <span class="grow"></span>
-      <a class="mini" href="/proxy/accounts/export" download style="text-decoration:none">导出账号库</a>
+      <a class="mini" href="/proxy/accounts/export" download style="text-decoration:none">⤓ 导出账号库</a>
     </div>
-    ${rows ? '<table><thead><tr><th>名称</th><th>身份</th><th>标记</th><th>更新时间</th><th></th></tr></thead><tbody>' + rows + "</tbody></table>"
-          : '<div class="blank">账号库是空的 —— 登录 ZCode 后点「从当前登录新建」</div>'}
+    ${grid ? '<div class="body acct-grid">' + grid + "</div>" : '<div class="blank">账号库是空的 —— 登录 ZCode 后点「从当前登录新建」</div>'}
     <div class="body" style="border-top:1px solid var(--line2)">
       <div class="kv"><span class="k">ZCode 路径</span>
         <div class="copy" style="max-width:420px"><input id="zpath" class="mono" placeholder="C:\\...\\ZCode.exe" value="${esc(st.zcode_path || "")}"
@@ -661,37 +808,32 @@ function viewAcct() {
     </div>
   </div>
 
-  <div class="panel"><h2>账号详情 <span class="grow"></span>
-    <span style="color:var(--dim2);font-weight:400">${ACC_DETAIL_ID ? esc(ACC_DETAIL_ID) : "点某行的「额度 / 领取」查看"}</span></h2>
-    <div class="body">${accDetailHtml()}</div>
+  <div class="panel"><h2>查资格 / 领取 <span class="grow"></span>
+    <span style="color:var(--dim2);font-weight:400">${ACC_DETAIL && ACC_DETAIL.id ? esc(accountName(ACC_DETAIL.id)) : "点账号卡片的「查资格/领取」"}</span></h2>
+    <div class="body">${claimPanelHtml()}</div>
   </div>`;
 }
-
-function accDetailHtml() {
+function claimPanelHtml() {
   const d = ACC_DETAIL;
-  if (!d) return '<div class="blank">先在上面点一个账号的「额度」或「领取」</div>';
+  if (!d) return '<div class="blank">点某个账号卡片上的「查资格/领取」看可领套餐</div>';
+  if (d.loading) return '<div class="blank">查询中…</div>';
   if (d.error) return '<div class="blank" style="color:var(--err)">' + esc(d.error) + "</div>";
-  const name = (ACC && (ACC.accounts || []).find((a) => a.id === ACC_DETAIL_ID) || {}).name || ACC_DETAIL_ID;
-  if (d.kind === "quota") {
-    const q = d.data || {};
-    const plans = q.plans || q.models || [];
-    const rows = (Array.isArray(plans) ? plans : []).map((p) =>
-      '<div class="kv"><span class="k" style="width:auto">' + esc(p.name || p.model || p.id || "?") + "</span>" +
-      '<span class="v mono">' + esc(JSON.stringify(p.grant_items || p.grants || p)) + "</span></div>").join("");
-    return '<div style="color:var(--dim);font-size:12px;margin-bottom:8px">' + esc(name) + "</div>" +
-      (rows || '<div class="blank">没有额度明细</div>');
-  }
-  // claim：预览到可领套餐
-  const plans = d.data.plans || [];
-  const hint = d.data.activated === false && d.data.activationError
-    ? '<div style="color:var(--err);font-size:12px;margin-bottom:8px">激活上报失败：' + esc(d.data.activationError) + "</div>" : "";
-  if (!plans.length) return hint + '<div class="blank">没查到可领取的套餐</div>';
-  return hint + '<div style="color:var(--dim);font-size:12px;margin-bottom:8px">' + esc(name) + " · 共 " + plans.length + " 个套餐</div>" +
+  const data = d.data || {};
+  const name = accountName(d.id) || d.id;
+  const prog = CLAIM.msg
+    ? '<div style="margin-bottom:10px;font-size:12px;color:' + (CLAIM.ok === false ? "var(--err)" : CLAIM.ok ? "var(--ok)" : "var(--dim)") + '">' +
+      (CLAIM.running ? '<span class="dot live" style="display:inline-block;margin-right:6px"></span>' : "") + esc(CLAIM.msg) + "</div>"
+    : "";
+  const plans = data.plans || [];
+  if (!plans.length) return prog + '<div class="blank">' + esc(name) + " 没查到可领取的套餐</div>";
+  return prog + '<div style="color:var(--dim);font-size:12px;margin-bottom:8px">' + esc(name) + " · 共 " + plans.length + " 个套餐</div>" +
     plans.map((p) =>
-      '<div class="kv"><span class="k" style="width:auto">' + esc(p.name || p.plan_id) + "</span>" +
-      '<span class="v">' + esc(p.description || "") + "</span>" +
-      '<span class="grow"></span><span class="tag dim">' + esc(p.plan_id) + "</span></div>").join("") +
-    '<div style="color:var(--dim2);font-size:11.5px;margin-top:10px">真正的领取要弹滑块验证码窗（浏览器给不了那个环境），请在 exe 面板完成提交。</div>';
+      '<div class="kv" style="align-items:center">' +
+        '<span class="k" style="width:auto;min-width:170px">' + esc(p.name || p.plan_id) + "</span>" +
+        '<span class="v" style="color:var(--dim2);font-size:11.5px;flex:1">' + esc((p.grants || []).join(" / ") || p.description || "") + "</span>" +
+        '<button class="mini" data-claim-id="' + esc(d.id) + '" data-claim-pid="' + esc(p.plan_id) + '"' + (CLAIM.running ? " disabled" : "") + ">✦ 领取</button>" +
+      "</div>").join("") +
+    '<div style="color:var(--dim2);font-size:11.5px;margin-top:10px">点「领取」会弹出 exe 的滑块验证码窗，在原生窗里滑一下即可；本条会显示结果。</div>';
 }
 
 /* ---------- 视图：邮箱（邮箱库） ---------- */
@@ -745,7 +887,41 @@ function viewMail() {
   </div>`;
 }
 
-/* ---------- 视图：邮箱管理（看正文） ---------- */
+/* ---------- 视图：邮箱管理（看原文 + 链接） ---------- */
+// 默认给邮件套一层 CSP：禁掉一切外部资源（尤其远程图片 = 跟踪像素）。
+// 用户点「显示图片」才放开 img-src。sandbox="" 另外把脚本整个禁掉。
+function mailCsp(allowImg) {
+  const img = allowImg ? "https: http: data:" : "'none'";
+  return '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src ' + img +
+    "; style-src 'unsafe-inline'; font-src data:;\">";
+}
+function mailLinksHtml(m) {
+  const links = m.links || [];
+  if (!links.length) return '<div style="color:var(--dim2);font-size:12px;margin:10px 0">没有扫描到链接</div>';
+  return '<div class="lks"><div class="hd">提取到的链接（' + links.length + '）· 点「复制」取激活/验证链接</div>' +
+    links.map((l) =>
+      '<div class="lk"><span class="lt"><span class="t" title="' + esc(l.text || l.url) + '">' + esc(l.text || l.url) + "</span>" +
+        '<span class="u" title="' + esc(l.url) + '">' + esc(l.url) + "</span></span>" +
+        '<button class="mini" data-copy-link="' + esc(l.url) + '">复制</button>' +
+        '<a href="' + esc(l.url) + '" target="_blank" rel="noopener">打开</a></div>').join("") +
+    "</div>";
+}
+function mailDetailHtml(m) {
+  const head = '<div style="font-weight:600;margin-bottom:6px">' + esc(m.subject) + "</div>" +
+    '<div style="color:var(--dim2);font-size:11.5px;margin-bottom:8px">' + esc(m.from || "") + " · " +
+      esc((m.receivedAt || "").replace("T", " ").slice(0, 19)) + "</div>";
+  const toggle = '<label class="mtoggle"><input type="checkbox" id="mboximg"' + (MBOX.showImg ? " checked" : "") +
+    "> 显示远程图片（默认不加载，防跟踪像素）</label>";
+  let frame;
+  if (m.html) {
+    // 原文照渲染，HTML 整体转义进 srcdoc；sandbox="" 禁脚本，CSP 禁外部资源
+    frame = '<iframe class="mframe" sandbox="" srcdoc="' + escSrcdoc(mailCsp(MBOX.showImg) + m.html) + '"></iframe>';
+  } else {
+    frame = '<div style="white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.7;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card2)">' +
+      esc(m.text || m.preview || "（正文为空）") + "</div>";
+  }
+  return head + mailLinksHtml(m) + toggle + frame;
+}
 function viewMbox() {
   const list = (MAIL && MAIL.accounts) || [];
   const opts = list.map((a) => '<option value="' + esc(a.email) + '"' + (a.email === MBOX.email ? " selected" : "") + ">" + esc(a.email) + "</option>").join("");
@@ -756,30 +932,28 @@ function viewMbox() {
       (i === MBOX.sel ? "background:var(--on)" : "") + '">' +
       '<div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(m.subject) + "</div>" +
       '<div style="color:var(--dim2);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-        esc(m.from || "") + " · " + esc((m.receivedAt || "").replace("T", " ").slice(0, 19)) + "</div>" +
+        esc(m.from || "") + " · " + esc((m.receivedAt || "").replace("T", " ").slice(0, 19)) +
+        ((m.links || []).length ? ' <span class="tag info">' + m.links.length + " 链接</span>" : "") + "</div>" +
     "</div>").join("");
   const cur = MBOX.sel >= 0 ? msgs[MBOX.sel] : null;
-  const detail = cur
-    ? '<div style="padding:4px 2px"><div style="font-weight:600;margin-bottom:6px">' + esc(cur.subject) + "</div>" +
-      '<div style="color:var(--dim2);font-size:11.5px;margin-bottom:10px">' + esc(cur.from || "") + " · " +
-        esc((cur.receivedAt || "").replace("T", " ").slice(0, 19)) + "</div>" +
-      '<div style="white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.7">' + esc(cur.body || cur.preview || "（正文为空）") + "</div></div>"
-    : '<div class="blank">左边点一封邮件看正文</div>';
+  const detail = MBOX.loading
+    ? '<div class="blank">加载中…</div>'
+    : cur ? mailDetailHtml(cur) : '<div class="blank">左边点一封邮件看原文</div>';
   return `
   <div class="panel"><h2>邮箱管理 <span class="grow"></span>
-    <span style="color:var(--dim2);font-weight:400">看收件箱正文（Graph 拉最近若干封）</span></h2>
+    <span style="color:var(--dim2);font-weight:400">看收件箱原文（沙箱 iframe）+ 提取链接</span></h2>
     <div class="body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line2);padding:11px 16px">
       <select id="mboxsel" style="background:var(--input);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 10px;font:12.5px/1.4 inherit;min-width:260px">
         <option value="">— 选一个邮箱 —</option>${opts}</select>
-      <button class="mini" data-mbox-load>刷新</button>
+      <button class="mini" data-mbox-load>⟳ 刷新</button>
       <span class="grow"></span>
       <span style="color:var(--dim2);font-size:12px">${MBOX.err ? '<span style="color:var(--err)">' + esc(MBOX.err) + "</span>" : (d ? "共 " + msgs.length + " 封" : "")}</span>
     </div>
     <div class="grid2" style="gap:0">
-      <div style="border-right:1px solid var(--line2);max-height:460px;overflow:auto">
+      <div style="border-right:1px solid var(--line2);max-height:640px;overflow:auto">
         ${rows || '<div class="blank">' + (MBOX.email ? "没有邮件或还没加载" : "先选一个邮箱") + "</div>"}
       </div>
-      <div style="padding:14px 16px;max-height:460px;overflow:auto">${detail}</div>
+      <div style="padding:14px 16px;max-height:640px;overflow:auto">${detail}</div>
     </div>
   </div>`;
 }
@@ -806,27 +980,99 @@ async function loadMail() {
   catch (e) { MAIL = { accounts: [], error: String(e.message || e) }; }
   const live = new Set(((MAIL && MAIL.accounts) || []).map((a) => a.email));
   for (const e of [...MAIL_SEL]) if (!live.has(e)) MAIL_SEL.delete(e);
-  if (route === "mail") render();
+  // mbox 页也要重绘：下拉框的选项来自 MAIL，直接进 #mbox 时得等它加载完再回填选中项
+  if (route === "mail" || route === "mbox") render();
 }
 async function loadMbox() {
   if (!MBOX.email) { MBOX.data = null; MBOX.err = ""; if (route === "mbox") render(); return; }
-  MBOX.err = "";
+  MBOX.err = ""; MBOX.loading = true;
+  if (route === "mbox") render();
   try {
     MBOX.data = await api("/proxy/mail/messages?email=" + encodeURIComponent(MBOX.email) + "&top=20");
     MBOX.sel = MBOX.data.messages && MBOX.data.messages.length ? 0 : -1;
   } catch (e) { MBOX.data = null; MBOX.sel = -1; MBOX.err = String(e.message || e); }
+  MBOX.loading = false;
   if (route === "mbox") render();
 }
 async function accDetail(kind, id) {
   ACC_DETAIL_ID = id;
-  ACC_DETAIL = { kind, loading: true };
+  ACC_DETAIL = { kind, id, loading: true };
   if (route === "acct") render();
   try {
-    const d = kind === "quota" ? await api("/proxy/account/quota?id=" + encodeURIComponent(id))
-      : await api("/proxy/account/claim-preview", { id });
-    ACC_DETAIL = { kind, data: d };
-  } catch (e) { ACC_DETAIL = { kind, error: String(e.message || e) }; }
+    const d = await api("/proxy/account/claim-preview", { id });
+    ACC_DETAIL = { kind, id, data: d };
+  } catch (e) { ACC_DETAIL = { kind, id, error: String(e.message || e) }; }
   if (route === "acct") render();
+}
+/* ---------- 额度：单号 / 全部 + 汇总 ---------- */
+async function loadQuota(id, quiet) {
+  if (!quiet) QMAP[id] = { loading: true };
+  if (route === "acct") render();
+  try { QMAP[id] = { data: await api("/proxy/account/quota?id=" + encodeURIComponent(id)) }; }
+  catch (e) { QMAP[id] = { error: String(e.message || e) }; }
+  if (route === "acct") render();
+}
+async function loadAllQuotas() {
+  if (QLOAD.running) return;
+  const list = (ACC && ACC.accounts) || [];
+  if (!list.length) return;
+  QLOAD.running = true; QLOAD.done = 0; QLOAD.total = list.length;
+  if (route === "acct") render();
+  const queue = list.slice();
+  // 并发 3 —— 上游额度接口不便宜，别一次全打出去
+  const worker = async () => {
+    while (queue.length) {
+      const a = queue.shift();
+      await loadQuota(a.id, true);
+      QLOAD.done++;
+      if (route === "acct") render();
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  QLOAD.running = false;
+  if (route === "acct") render();
+}
+// 首次进账号页自动查一轮；号特别多才不自动（免得把上游打爆），留「查询全部额度」手动点
+function maybeAutoQuota() {
+  if (QAUTO) return;
+  const list = (ACC && ACC.accounts) || [];
+  if (!list.length) return;
+  const pending = list.filter((a) => !QMAP[a.id]);
+  if (!pending.length) { QAUTO = true; return; }
+  if (pending.length > 30) return;
+  QAUTO = true;
+  loadAllQuotas();
+}
+/* ---------- 领取：开 exe 滑块窗 + 轮询结果 ---------- */
+async function claimSubmit(id, planId, planName) {
+  CLAIM = { id, plan: planName || planId, running: true, msg: "正在拉起验证码窗口…", ok: null, startedAt: Math.floor(Date.now() / 1000) - 2 };
+  if (route === "acct") render();
+  try {
+    const r = await api("/proxy/account/claim-start", { id, plan_id: planId });
+    CLAIM.running = true;
+    CLAIM.msg = "滑块验证码窗已弹出（" + (r.account || "") + " · " + (r.plan || planName || "") + "），在原生窗里滑一下，这里会自动更新";
+    if (route === "acct") render();
+    pollClaim();
+  } catch (e) {
+    CLAIM = { id, msg: "领取没能开始：" + String(e.message || e), running: false, ok: false, startedAt: 0 };
+    if (route === "acct") render();
+  }
+}
+async function pollClaim() {
+  for (let i = 0; i < 80; i++) {
+    await sleep(1500);
+    let r = null;
+    try { r = await fetch("/proxy/account/claim-result", { cache: "no-store" }).then((x) => x.json()); } catch (e) {}
+    const res = r && r.result;
+    if (res && res.accountId === CLAIM.id && (r.at || 0) >= CLAIM.startedAt) {
+      if (res.ok === false) CLAIM = { id: CLAIM.id, msg: "领取失败：" + (res.message || "未知原因"), running: false, ok: false, startedAt: 0 };
+      else CLAIM = { id: CLAIM.id, msg: "已领取：" + (res.planName || "") + (res.endsAt ? "（至 " + new Date(res.endsAt).toLocaleString("zh-CN", { hour12: false }) + "）" : ""), running: false, ok: true, startedAt: 0 };
+      loadQuota(CLAIM.id, true);
+      if (route === "acct") render();
+      return;
+    }
+  }
+  if (CLAIM.running) { CLAIM.running = false; CLAIM.msg = "等验证码超时（约 2 分钟），如果已经滑过，点「刷新额度缓存」或重新查额度看结果"; if (route === "acct") render(); }
 }
 async function loadLogs() {
   if (LOGP.loading) return;
@@ -877,7 +1123,8 @@ function wireAcct() {
   };
   for (const b of document.querySelectorAll("[data-act-del]")) b.onclick = async () => {
     if (!confirm("删除账号？此操作不可撤销。")) return;
-    try { await api("/proxy/account/delete", { id: b.dataset.actDel }); await loadAccounts(); } catch (e) { alert(String(e.message || e)); }
+    const id = b.dataset.actDel;
+    try { await api("/proxy/account/delete", { id }); delete QMAP[id]; await loadAccounts(); } catch (e) { alert(String(e.message || e)); }
   };
   for (const b of document.querySelectorAll("[data-act-rn]")) b.onclick = async () => {
     const name = prompt("新名字：", ""); if (name == null) return;
@@ -886,8 +1133,15 @@ function wireAcct() {
   for (const b of document.querySelectorAll("[data-act-upd]")) b.onclick = async () => {
     try { await api("/proxy/account/update-live", { id: b.dataset.actUpd }); await loadAccounts(); } catch (e) { alert(String(e.message || e)); }
   };
-  for (const b of document.querySelectorAll("[data-act-quota]")) b.onclick = () => accDetail("quota", b.dataset.actQuota);
+  for (const b of document.querySelectorAll("[data-act-quota]")) b.onclick = () => loadQuota(b.dataset.actQuota);
   for (const b of document.querySelectorAll("[data-act-claim]")) b.onclick = () => accDetail("claim", b.dataset.actClaim);
+  for (const b of document.querySelectorAll("[data-claim-pid]")) b.onclick = () => {
+    const row = b.closest(".kv");
+    const planName = row ? (row.querySelector(".k") || {}).textContent : "";
+    claimSubmit(b.dataset.claimId, b.dataset.claimPid, planName);
+  };
+  const aq = document.querySelector("[data-acc-all-quota]");
+  if (aq) aq.onclick = () => { QAUTO = true; loadAllQuotas(); };
 }
 function wireMail() {
   const imp = document.querySelector("[data-mail-import]");
@@ -941,6 +1195,20 @@ function wireMbox() {
   const lb = document.querySelector("[data-mbox-load]");
   if (lb) lb.onclick = () => loadMbox();
   for (const row of document.querySelectorAll("[data-mbox-i]")) row.onclick = () => { MBOX.sel = Number(row.dataset.mboxI); render(); };
+  const img = $("mboximg");
+  if (img) img.onchange = () => { MBOX.showImg = img.checked; render(); };
+  for (const b of document.querySelectorAll("[data-copy-link]")) b.onclick = async () => {
+    const u = b.dataset.copyLink;
+    try { await navigator.clipboard.writeText(u); }
+    catch (e) {
+      const t = document.createElement("textarea");
+      t.value = u; document.body.appendChild(t); t.select();
+      try { document.execCommand("copy"); } catch (x) {}
+      t.remove();
+    }
+    b.textContent = "已复制";
+    setTimeout(() => { b.textContent = "复制"; }, 1200);
+  };
 }
 
 /* ---------- 视图：用量 ---------- */
@@ -1097,9 +1365,9 @@ function render() {
     $("view").innerHTML = view();
     if (route === "dash") drawSpark();
     if (route === "usage") { wireUsage(); if (!USAGE) loadUsage(); }
-    if (route === "acct") { wireAcct(); if (!ACC) loadAccounts(); }
+    if (route === "acct") { wireAcct(); if (!ACC) loadAccounts(); maybeAutoQuota(); }
     if (route === "mail") { wireMail(); if (!MAIL) loadMail(); }
-    if (route === "mbox") { wireMbox(); if (!MBOX.data && MBOX.email) loadMbox(); }
+    if (route === "mbox") { wireMbox(); if (!MBOX.data && !MBOX.loading && MBOX.email) loadMbox(); }
     if (route === "logs" && !LOGP.lines.length && !LOGP.loading) loadLogs();
   }
 

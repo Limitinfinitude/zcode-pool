@@ -256,6 +256,26 @@ async fn claim_start(
     plan_id: String,
     auto: Option<bool>,
 ) -> Result<serde_json::Value, String> {
+    claim_start_inner(&app, id, plan_id, auto.unwrap_or(false))
+}
+
+/// exe 命令和网页（反代）共用的一份领取入口：预检套餐 → 记下 pending → 拉起滑块窗。
+/// 反代线程拿 AppHandle 就是为了调这个，验证码流程一行没重写。
+pub fn proxy_claim_start(
+    app: &AppHandle,
+    id: String,
+    plan_id: String,
+    auto: bool,
+) -> Result<serde_json::Value, String> {
+    claim_start_inner(app, id, plan_id, auto)
+}
+
+fn claim_start_inner(
+    app: &AppHandle,
+    id: String,
+    plan_id: String,
+    auto: bool,
+) -> Result<serde_json::Value, String> {
     let paths = Paths::detect();
     let mid = store::account_mid(&paths, &id)?;
     let acc = load_account(&paths, &id)?;
@@ -275,8 +295,32 @@ async fn claim_start(
         config: acc.config,
         device_mid: mid,
     });
-    open_captcha_window(&app, auto.unwrap_or(false))?;
-    Ok(json!({ "account": acc.name, "plan": display }))
+    open_captcha_window(app, auto)?;
+    Ok(json!({ "account": acc.name, "plan": display, "captcha": true }))
+}
+
+/// 最近一次领取结果（captcha 窗提交后落这里）。网页轮询 `/proxy/account/claim-result` 取。
+/// 存一份是为了让「网页点领取 → exe 弹窗 → 滑完」这条链路有回音，不然网页不知道成没成。
+static LAST_CLAIM: Mutex<Option<Value>> = Mutex::new(None);
+
+fn last_claim_guard() -> std::sync::MutexGuard<'static, Option<Value>> {
+    match LAST_CLAIM.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+pub fn claim_last_result() -> Value {
+    last_claim_guard().clone().unwrap_or(Value::Null)
+}
+
+fn record_claim_result(payload: &Value) {
+    *last_claim_guard() = Some(json!({ "at": store::now_ts(), "result": payload }));
+}
+
+/// 网页改了账号后让 exe 面板重画一遍（面板监听 state-changed 刷新）
+pub fn emit_state_changed(app: &AppHandle) {
+    let _ = app.emit("state-changed", ());
 }
 
 #[tauri::command]
@@ -322,6 +366,7 @@ async fn claim_captcha_submit(
                 server_time,
             };
             let p = serde_json::to_value(&outcome).unwrap_or(Value::Null);
+            record_claim_result(&p);
             let _ = app.emit("claim://result", &p);
             p
         }
@@ -332,6 +377,7 @@ async fn claim_captcha_submit(
                 &pending.plan_name,
                 &e,
             );
+            record_claim_result(&p);
             let _ = app.emit("claim://result", &p);
             return Ok(p);
         }
@@ -1584,6 +1630,9 @@ pub fn run() {
             // 反代开关是持久的：上次开着就把服务一并拉起来。
             // 隐藏的取码窗不用在这里建（窗口还没就绪），前端的 refresh() 会补。
             let paths = Paths::detect();
+            // 把 AppHandle 交给反代：网页触发「领取」要弹 exe 的滑块窗、改账号要刷托盘，
+            // 都靠它。必须在 start() 之前塞，否则先起来的服务拿不到。
+            relay().set_app(app.handle().clone());
             // 恢复持久化的服务级设置。**必须显式恢复** —— 只存不读等于没存：
             // 之前监听地址/密钥/模型映射都是存了但重启就丢。
             relay().restore_persisted(&paths);
