@@ -1126,9 +1126,15 @@ function accountCard(a) {
       // 文案别写成「查资格/领取」—— 那样看着像一步，跟实际行为不符。
       '<button class="mini" data-act-claim="' + esc(a.id) + '">' + ICON("gift", 14) + "查可领套餐</button>" +
       (a.is_active ? "" : '<button class="mini" data-act-switch="' + esc(a.id) + '">' + ICON("swap", 14) + "切换</button>") +
-      // 「与当前登录同步」= update_account_from_live：把客户端当前登录的凭据覆盖写回这个号（不是「刷新」）
-      '<button class="mini" data-act-upd="' + esc(a.id) + '" title="把客户端当前登录的凭据覆盖写回这个号">' +
-        ICON("download", 14) + "与当前登录同步</button>" +
+      // 「用当前登录刷新」= update_account_from_live：把客户端**当前登录的那个账号**的新凭据同步回池子。
+      // 它和「保存登录」(capture_current)是**互补**的：后者只能新建（已存在就报「已保存过」），
+      // 而客户端重新登录/授权后要刷新旧号的 token，只能靠这个。
+      // ⚠ **只在「当前登录就是这个号」时才可点**：否则会拿当前登录那个号的凭据覆盖掉你点的这个。
+      (a.is_active
+        ? '<button class="mini" data-act-upd="' + esc(a.id) + '" title="客户端现在登的就是这个号 —— 把它的新凭据同步回池子">' +
+            ICON("download", 14) + "用当前登录刷新</button>"
+        : '<button class="mini" data-act-upd="' + esc(a.id) + '" disabled title="客户端现在登的不是这个号 —— 强行同步会用别的号的凭据覆盖掉它，所以禁用">' +
+            ICON("download", 14) + "用当前登录刷新</button>") +
       '<button class="mini" data-act-rn="' + esc(a.id) + '">' + ICON("pen", 14) + "重命名</button>" +
       '<button class="mini danger" data-act-del="' + esc(a.id) + '">' + ICON("trash", 14) + "删除</button>" +
     "</div></div>";
