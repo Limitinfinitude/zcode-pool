@@ -39,8 +39,11 @@
   .brand{display:flex;align-items:center;gap:9px;padding:6px 8px 16px}
   .logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--acc),var(--violet));
         display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;flex:none}
+  /* 品牌文字竖排：上行 Z·POOL，下一行 proxy 控制台 —— 200px 侧栏里不再把徽标挤断行 */
+  .brand-txt{display:flex;flex-direction:column;gap:3px;min-width:0;line-height:1.2}
   .brand b{font-size:14px;letter-spacing:.2px}
-  .brand em{font-style:normal;font-size:10px;color:var(--dim2);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+  .brand em{font-style:normal;font-size:10px;color:var(--dim2);border:1px solid var(--line);border-radius:5px;
+            padding:1px 5px;align-self:flex-start;white-space:nowrap}
   .nav{display:flex;flex-direction:column;gap:1px}
   .nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--dim);
          text-decoration:none;font-size:13px;cursor:pointer;transition:background .12s,color .12s}
@@ -90,7 +93,7 @@
   @media(max-width:960px){
     .grid2{grid-template-columns:1fr}
     aside{width:58px;padding:14px 8px}
-    aside .lb,.brand b,.brand em,.side-foot{display:none}
+    aside .lb,.brand-txt,.brand b,.brand em,.side-foot{display:none}
     .brand{justify-content:center;padding:6px 0 14px}
     .nav a{justify-content:center;gap:0;padding:9px 0}
     .ico{width:auto}
@@ -202,12 +205,21 @@
   .due-sum{margin-top:9px;padding-top:8px;border-top:1px solid var(--line2);font-size:11.5px;color:var(--dim2);
            font-variant-numeric:tabular-nums}
   .due-none{font-size:11.5px;color:var(--dim2);padding:2px 0}
-  .acct-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:var(--gap)}
+  /* 一行一个号、占满宽度 —— 额度条/到期/按钮都有空间；旧的 minmax(520px,1fr) 是双列 */
+  .acct-grid{display:grid;grid-template-columns:1fr;gap:var(--gap)}
   .acct-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
   .acct-card.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
   .acct-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
   .acct-hd b{font-size:13.5px}
   .acct-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;border-top:1px solid var(--line2);padding-top:10px}
+  /* 账号页筛选条：状态 <select> + 名字搜索框（不用按钮，免得页面按钮数变） */
+  .acct-filter{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+               border-bottom:1px solid var(--line2);padding:10px 16px}
+  .acct-filter .sel{padding:5px 9px}
+  .acct-filter .fcount{color:var(--dim2);font-size:11.5px;font-variant-numeric:tabular-nums}
+  /* 设置页里策略分组的分隔标题 */
+  .sec-hd{color:var(--dim2);font-size:11px;font-weight:600;letter-spacing:.12em;
+          margin:22px 2px 10px;text-transform:uppercase}
   .sumrow{display:flex;align-items:center;gap:12px;padding:5px 0}
   .sumrow .sl{width:140px;flex:none;font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
@@ -286,16 +298,14 @@
 <body>
 <div class="app">
   <aside>
-    <div class="brand"><span class="logo">Z</span><b>Z·POOL</b><em class="lb">proxy 控制台</em></div>
+    <div class="brand"><span class="logo">Z</span>
+      <span class="brand-txt"><b>Z·POOL</b><em class="lb">proxy 控制台</em></span></div>
     <div class="nav" id="nav">
       <a data-r="dash" class="on"><span class="ico">◱</span><span class="lb">仪表盘</span></a>
       <a data-r="chan"><span class="ico">◈</span><span class="lb">渠道</span></a>
-      <a data-r="policy"><span class="ico">⚙</span><span class="lb">策略</span></a>
       <a data-r="usage"><span class="ico">▤</span><span class="lb">用量</span></a>
       <a data-r="acct"><span class="ico">☰</span><span class="lb">账号</span></a>
       <a data-r="mail"><span class="ico">✉</span><span class="lb">邮箱</span></a>
-      <a data-r="mbox"><span class="ico">▥</span><span class="lb">邮箱管理</span></a>
-      <a data-r="admin"><span class="ico">❖</span><span class="lb">管理</span></a>
       <a data-r="keys"><span class="ico">⚒</span><span class="lb">设置</span></a>
       <a data-r="logs"><span class="ico">≡</span><span class="lb">日志</span></a>
     </div>
@@ -663,6 +673,8 @@ function patchDash() {
 
 /* ---------- 视图：渠道 ---------- */
 let chanFilter = "all";
+// 账号页筛选（纯前端：只改卡片的 display，不重画、不动接口）
+let acctFilter = "all", acctSearch = "";
 function viewChan() {
   const s = S || {};
   const all = s.channels || [];
@@ -868,7 +880,8 @@ function viewSettings() {
       <div class="kv"><span class="k">可用模型</span>
         <div class="chips">${(s.models || []).map((x) => '<span class="chip mono">' + esc(x) + "</span>").join("") || "—"}</div></div>
     </div>
-  </div>`;
+  </div>
+  <div class="sec-hd">策略</div>` + viewPolicy();
 }
 
 /* ---------- 视图：日志 ---------- */
@@ -1085,9 +1098,25 @@ function accountBodyHtml(a) {
   if (q && q.data) return quotaRowsHtml(q.data);
   return '<div style="color:var(--dim2);font-size:12px;padding:6px 0">还没查询额度</div>';
 }
+// 账号状态标签（给筛选条用）：一行一个号，卡片根上挂 data-name / data-st。
+// 「已冻结 / 已用尽」取自 /proxy/status 的 channels[].frozen（渠道 id 就是账号 id）；
+// 「有额度 / 无额度」取自账号页自己查的 QMAP。只读现有数据，不动任何接口。
+function acctStatusKeys(a) {
+  const qe = QMAP[a.id];
+  const q = qe && qe.data;
+  const ch = ((S && S.channels) || []).find((c) => c.id === a.id) || {};
+  const known = !!q;
+  const empty = known ? (!!q.is_empty || (q.remaining != null && q.remaining <= 0)) : false;
+  const frozen = !!ch.frozen;
+  const usedup = frozen && String(ch.frozen).indexOf("用尽") >= 0;
+  return ["all", a.is_active ? "active" : "", known && !empty ? "has" : "",
+    known && empty ? "none" : "", frozen ? "frozen" : "", usedup ? "used" : ""]
+    .filter(Boolean).join(" ");
+}
 function accountCard(a) {
   const body = accountBodyHtml(a);
-  return '<div class="acct-card' + (a.is_active ? " on" : "") + '">' +
+  return '<div class="acct-card' + (a.is_active ? " on" : "") + '" data-name="' + esc(String(a.name || "").toLowerCase()) +
+      '" data-st="' + esc(acctStatusKeys(a)) + '">' +
     '<div class="acct-hd"><b>' + esc(a.name) + "</b>" + (a.is_active ? '<span class="tag ok">当前</span>' : "") +
       '<span class="grow"></span><span style="color:var(--dim2);font-size:11px">' + esc(idLabel(a)) + "</span></div>" +
     '<div data-p="acard-body" data-id="' + esc(a.id) + '">' + body + "</div>" +
@@ -1097,7 +1126,9 @@ function accountCard(a) {
       // 文案别写成「查资格/领取」—— 那样看着像一步，跟实际行为不符。
       '<button class="mini" data-act-claim="' + esc(a.id) + '">' + ICON("gift", 14) + "查可领套餐</button>" +
       (a.is_active ? "" : '<button class="mini" data-act-switch="' + esc(a.id) + '">' + ICON("swap", 14) + "切换</button>") +
-      '<button class="mini" data-act-upd="' + esc(a.id) + '">' + ICON("download", 14) + "更新</button>" +
+      // 「与当前登录同步」= update_account_from_live：把客户端当前登录的凭据覆盖写回这个号（不是「刷新」）
+      '<button class="mini" data-act-upd="' + esc(a.id) + '" title="把客户端当前登录的凭据覆盖写回这个号">' +
+        ICON("download", 14) + "与当前登录同步</button>" +
       '<button class="mini" data-act-rn="' + esc(a.id) + '">' + ICON("pen", 14) + "重命名</button>" +
       '<button class="mini danger" data-act-del="' + esc(a.id) + '">' + ICON("trash", 14) + "删除</button>" +
     "</div></div>";
@@ -1276,9 +1307,31 @@ function patchAcct() {
   if (route !== "acct" || !ACC) return;
   for (const el of document.querySelectorAll('[data-p="acard-body"]')) {
     const a = (ACC.accounts || []).find((x) => x.id === el.dataset.id);
-    if (a) el.innerHTML = accountBodyHtml(a);
+    if (a) {
+      el.innerHTML = accountBodyHtml(a);
+      const card = el.closest(".acct-card");
+      if (card) card.dataset.st = acctStatusKeys(a);   // 额度到货 → 状态标签跟着更新
+    }
   }
   PH("acct-summary", quotaSummaryInner());
+  applyAcctFilter();   // 额度到货后可能改变归类（如进入「有额度」），但用户选的筛选保持不变
+}
+/* 账号页筛选：只改 .acct-card 的 display（不重画 → <select>/<input> 不丢焦点）。
+   状态 + 名字两个条件与关系；无卡片时也算一次，把「显示数」写回。 */
+function applyAcctFilter() {
+  const cards = document.querySelectorAll(".acct-card");
+  const q = String(acctSearch || "").trim().toLowerCase();
+  let shown = 0;
+  for (const c of cards) {
+    const st = " " + (c.dataset.st || "") + " ";
+    const okSt = acctFilter === "all" || st.indexOf(" " + acctFilter + " ") >= 0;
+    const okNm = !q || (c.dataset.name || "").indexOf(q) >= 0;
+    const show = okSt && okNm;
+    c.style.display = show ? "" : "none";
+    if (show) shown++;
+  }
+  const n = document.querySelector('[data-p="acct-count"]');
+  if (n) n.textContent = shown === cards.length ? cards.length + " 个" : shown + " / " + cards.length + " 个";
 }
 function viewAcct() {
   const st = ACC || {};
@@ -1310,6 +1363,18 @@ function viewAcct() {
       <button class="mini pri" data-acc-all-quota>${ICON("search", 14)}查询全部额度</button>
       <span class="grow"></span>
       <a class="mini" href="/proxy/accounts/export" download>${ICON("download", 14)}导出账号库</a>
+    </div>
+    <div class="acct-filter">
+      <span style="color:var(--dim2);font-size:11.5px">筛选</span>
+      <select id="acctfilter" class="sel" style="min-width:122px">
+        ${[["all", "全部"], ["active", "当前登录"], ["has", "有额度"], ["none", "无额度"], ["frozen", "已冻结"], ["used", "已用尽"]]
+          .map(([v, l]) => '<option value="' + v + '"' + (acctFilter === v ? " selected" : "") + ">" + l + "</option>").join("")}
+      </select>
+      <input id="acctsearch" class="sel" placeholder="按名字搜索…" value="${esc(acctSearch)}"
+        style="flex:1 1 180px;max-width:260px">
+      <span class="fcount" data-p="acct-count"></span>
+      <span class="grow"></span>
+      <span style="color:var(--dim2);font-size:11.5px">一行一个号</span>
     </div>
     ${grid ? '<div class="body acct-grid">' + grid + "</div>" : emptyState("users", "账号库是空的 —— 登录 ZCode 后点「从当前登录新建」")}
     <div class="body" style="border-top:1px solid var(--line2)">
@@ -1485,6 +1550,10 @@ async function loadAccounts(quiet) {
   try { ACC = await api("/proxy/accounts"); }
   catch (e) { ACC = { accounts: [], error: String(e.message || e) }; }
   if (route === "acct") { if (quiet) { if (accSig() !== ACC_SIG) render(); } else render(); }
+  else if (route === "dash") patchDash();
+  // 账号列表到货后自动查额度：仪表盘的「今天到期」小卡依赖它，不查就是空的
+  // （maybeAutoQuota 自己有一次性的 QAUTO 守卫，重复调用安全；没账号数据时它会早退）
+  maybeAutoQuota();
 }
 async function loadMail(quiet) {
   try { MAIL = await api("/proxy/mail"); }
@@ -1659,6 +1728,12 @@ function wireAcct() {
   };
   const aq = document.querySelector("[data-acc-all-quota]");
   if (aq) aq.onclick = () => { QAUTO = true; loadAllQuotas(); };
+  // 筛选：状态 <select> + 名字 <input>，都只做前端显示/隐藏（render 后重新绑定）
+  const af = $("acctfilter");
+  if (af) af.onchange = () => { acctFilter = af.value; applyAcctFilter(); };
+  const sq = $("acctsearch");
+  if (sq) sq.oninput = () => { acctSearch = sq.value; applyAcctFilter(); };
+  applyAcctFilter();
 }
 function wireMail() {
   const imp = document.querySelector("[data-mail-import]");
@@ -1917,6 +1992,8 @@ function render() {
   if (route === "dash") drawSpark();
   if (route === "usage") { wireUsage(); USAGE_SIG = sigUsage(); if (!USAGE) loadUsage(); }
   if (route === "acct") { wireAcct(); if (!ACC) loadAccounts(); maybeAutoQuota(); }
+  // 仪表盘也要账号列表 —— 右侧「今天到期」小卡靠它；loadAccounts 回来后会自己触发查额度
+  if (route === "dash" && !ACC) loadAccounts();
   if (route === "mail") { wireMail(); if (!MAIL) loadMail(); }
   if (route === "mbox") { wireMbox(); if (!MBOX.data && !MBOX.loading && MBOX.email) loadMbox(); }
   if (route === "logs" && !LOGP.lines.length && !LOGP.loading) loadLogs();
