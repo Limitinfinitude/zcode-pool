@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis
+            target: ''
+          - os: macos-latest
+            bundles: dmg
+            target: universal-apple-darwin
+          - os: ubuntu-22.04
+            bundles: deb,appimage
+            target: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS universal targets
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Linux system deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: npm install
+
+      - name: Build & attach to Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.1.4' }}
+          releaseName: 'Z·POOL v0.1.4'
+          releaseBody: |
+            Z·POOL — 邮箱池 / Z.ai 批量注册验证 / ZCode 账号切换 / 本机 proxy 网关。
+
+            ⚠️ 本版移除了「无感切换」
+            - 实测：**同一个对话被超过 2 个账号使用过，就会触发上游风控（`3012`），此后这条对话用任何账号都过不去。**
+            - 这条限制和「无感切换」的原理直接冲突 —— 它的全部价值就是在一条对话里悄悄换号，所以该功能已移除。
+            - 中继和客户端配置改写一并下掉，**不会再修改 ZCode 的 provider 配置**。
+            - 换号请用账号库里的**手动切换**：存档当前登录 → 切换 → 自动拉起客户端，以新身份开始新对话。
+
+            本版新增
+            - **本机 proxy 网关**：给 pi-agent、LobeChat 等第三方应用提供一个本机接口，直接用上账号池的额度。
+            - **proxy 控制台页**：浏览器打开即可看当前路由、模型列表、token 速度与累计用量。
+            - **后台自动取码**：不用再开着取码窗口，工具自己维持验证码池。
+
+            下载对应平台：
+            - Windows: `*_x64-setup.exe`（安装包）
+            - macOS: `*_universal.dmg`（Intel + Apple Silicon）
+            - Linux: `*.deb` / `*.AppImage`
+
+            未签名，首次运行系统可能提示「未知开发者」。
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.target != '' && format('--target {0} ', matrix.target) || '' }}--bundles ${{ matrix.bundles }}

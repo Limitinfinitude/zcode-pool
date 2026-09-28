@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+
+# Tauri
+src-tauri/target/
+src-tauri/target-gnu/
+src-tauri/gen/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+
+# Local agent config
+.zcode/
+.claude/
+
+# Misc
+nul
+*.local
+*.tmp
+*.partial
+
+# Local dev helpers / stray env artifacts
+capture.ps1
+%SystemDrive%/
+
+# ZCode 的系统提示词：运行时从本机 ZCode 安装里抽取，**不进仓库**
+src-tauri/assets/system_prompt.json
+
+__pycache__/
