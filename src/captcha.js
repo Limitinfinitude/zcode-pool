@@ -91,6 +91,9 @@ async function run() {
 
   const interactive = (why) => {
     notifyStuck();
+    // 网页触发的领取默认让窗 auto 隐藏（无感通过时不打扰用户）；
+    // 一旦风控拦住、无感走不通，这里把窗 show 出来让人去点滑块。
+    invoke("captcha_show").catch(() => {});
     clearTimeout(tracelessTimer);
     status(t("c.interactive"));
     $btn.hidden = false;

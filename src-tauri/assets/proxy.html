@@ -833,7 +833,7 @@ function claimPanelHtml() {
         '<span class="v" style="color:var(--dim2);font-size:11.5px;flex:1">' + esc((p.grants || []).join(" / ") || p.description || "") + "</span>" +
         '<button class="mini" data-claim-id="' + esc(d.id) + '" data-claim-pid="' + esc(p.plan_id) + '"' + (CLAIM.running ? " disabled" : "") + ">✦ 领取</button>" +
       "</div>").join("") +
-    '<div style="color:var(--dim2);font-size:11.5px;margin-top:10px">点「领取」会弹出 exe 的滑块验证码窗，在原生窗里滑一下即可；本条会显示结果。</div>';
+    '<div style="color:var(--dim2);font-size:11.5px;margin-top:10px">点「领取」走无感验证 —— 正常几秒自动完成、不弹窗；若被风控拦，exe 会弹出验证码窗让你滑一下，本条会显示结果。</div>';
 }
 
 /* ---------- 视图：邮箱（邮箱库） ---------- */
@@ -1043,14 +1043,18 @@ function maybeAutoQuota() {
   QAUTO = true;
   loadAllQuotas();
 }
-/* ---------- 领取：开 exe 滑块窗 + 轮询结果 ---------- */
+/* ---------- 领取：无感（隐藏窗自动过）+ 轮询结果 ---------- */
+// 网页点「领取」默认走无感：exe 那侧把验证码窗 auto 隐藏，阿里云 traceless 正常自己过，
+// 用户什么都不用做；被风控拦时 captcha.js 会把窗显出来让人滑。这里只等最终结果。
+const CLAIM_POLL_MS = 1500;
+const CLAIM_POLL_MAX = 40; // 40 * 1.5s ≈ 60s 上限
 async function claimSubmit(id, planId, planName) {
-  CLAIM = { id, plan: planName || planId, running: true, msg: "正在拉起验证码窗口…", ok: null, startedAt: Math.floor(Date.now() / 1000) - 2 };
+  CLAIM = { id, plan: planName || planId, running: true, msg: "正在领取…无感验证中，通常几秒就好，不用管", ok: null, startedAt: Math.floor(Date.now() / 1000) - 2 };
   if (route === "acct") render();
   try {
-    const r = await api("/proxy/account/claim-start", { id, plan_id: planId });
+    const r = await api("/proxy/account/claim-start", { id, plan_id: planId, auto: true });
     CLAIM.running = true;
-    CLAIM.msg = "滑块验证码窗已弹出（" + (r.account || "") + " · " + (r.plan || planName || "") + "），在原生窗里滑一下，这里会自动更新";
+    CLAIM.msg = "正在领取（" + (r.account || "") + " · " + (r.plan || planName || "") + "）…无感验证中，通常几秒完成；若被风控拦会弹窗让你滑一下";
     if (route === "acct") render();
     pollClaim();
   } catch (e) {
@@ -1059,8 +1063,8 @@ async function claimSubmit(id, planId, planName) {
   }
 }
 async function pollClaim() {
-  for (let i = 0; i < 80; i++) {
-    await sleep(1500);
+  for (let i = 0; i < CLAIM_POLL_MAX; i++) {
+    await sleep(CLAIM_POLL_MS);
     let r = null;
     try { r = await fetch("/proxy/account/claim-result", { cache: "no-store" }).then((x) => x.json()); } catch (e) {}
     const res = r && r.result;
@@ -1072,7 +1076,7 @@ async function pollClaim() {
       return;
     }
   }
-  if (CLAIM.running) { CLAIM.running = false; CLAIM.msg = "等验证码超时（约 2 分钟），如果已经滑过，点「刷新额度缓存」或重新查额度看结果"; if (route === "acct") render(); }
+  if (CLAIM.running) { CLAIM.running = false; CLAIM.msg = "等了约 60 秒还没结果 —— 可能被风控拦了，去工具窗口（exe 面板）看一眼有没有弹验证码；若已滑过，点「刷新额度缓存」或重新查额度看结果"; if (route === "acct") render(); }
 }
 async function loadLogs() {
   if (LOGP.loading) return;

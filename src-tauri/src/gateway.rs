@@ -2405,13 +2405,14 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
                 Err(e) => reply_json(req, 400, &json!({ "error": e })),
             };
         }
-        // 真正提交领取：把 exe 的滑块验证码窗拉起来，用户在原生窗里滑。
-        // 提交本身由 captcha.js 走 claim_captcha_submit 完成，网页这边只负责开窗 + 轮询结果。
+        // 真正提交领取：默认走「无感」隐藏路径 —— 验证码窗 auto=true 建/隐藏，
+        // 正常情况下阿里云 traceless 自己过、用户什么都不用做；被风控时才由 captcha.js
+        // 调 captcha_show 把窗显出来让人点。网页这边只负责开跑 + 轮询 claim-result。
         "/proxy/account/claim-start" => {
             let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
             let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
             let plan_id = v.get("plan_id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-            let auto = v.get("auto").and_then(|x| x.as_bool()).unwrap_or(false);
+            let auto = v.get("auto").and_then(|x| x.as_bool()).unwrap_or(true);
             let Some(app) = gw.app() else {
                 return reply_json(req, 400, &json!({ "error": "反代还没拿到 AppHandle（窗口环境未就绪），这一步暂时只能在 exe 面板做" }));
             };

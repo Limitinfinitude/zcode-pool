@@ -1236,6 +1236,10 @@ fn open_captcha_window(app: &AppHandle, auto: bool) -> Result<(), String> {
         }
         return Ok(());
     }
+    // WebView2 按 user data folder 复用 environment：第二个 webview 若 additionalBrowserArguments
+    // 和第一个（主窗，见 tauri.conf.json）不一致，CreateCoreWebView2EnvironmentWithOptions 会
+    // 直接失败（ERROR_INVALID_STATE），窗口句柄在但 webview 建不出来。所以这里必须和主窗完全一致。
+    const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows";
     let win = tauri::WebviewWindowBuilder::new(
         app,
         "captcha",
@@ -1248,12 +1252,26 @@ fn open_captcha_window(app: &AppHandle, auto: bool) -> Result<(), String> {
     .min_inner_size(340.0, 280.0)
     .maximizable(false)
     .resizable(false)
-    .additional_browser_args("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server")
+    .additional_browser_args(BROWSER_ARGS)
     .visible(false)
     .build()
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        flowlog::log("captcha", "build-err", &e.to_string());
+        e.to_string()
+    })?;
     center_over_main(app, &win, w, h);
     if !auto {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+    Ok(())
+}
+
+/// 无感失败（风控拦住）时由 captcha 窗自己调：把隐藏的验证码窗显出来让人点。
+/// 无感通过时根本不会走到这，所以正常情况下全程不弹窗。
+#[tauri::command]
+async fn captcha_show(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("captcha") {
         let _ = win.show();
         let _ = win.set_focus();
     }
@@ -1570,6 +1588,7 @@ pub fn run() {
             claim_captcha_config,
             claim_captcha_submit,
             claim_cancel,
+            captcha_show,
             oauth_providers,
             oauth_begin,
             reg_input,
