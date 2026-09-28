@@ -168,17 +168,48 @@
 
   /* ---------- 额度条 / 汇总 ---------- */
   .qbar{height:7px;border-radius:5px;background:var(--card2);border:1px solid var(--line);overflow:hidden;
-        flex:1;min-width:90px;display:block}
+        flex:1 1 80px;min-width:56px;display:block;transition:border-color .12s}
   .qbar>i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--ok),color-mix(in srgb,var(--ok) 50%,var(--acc)));
           transition:width .25s}
   .qbar.warn>i{background:var(--warn)}
   .qbar.danger>i{background:var(--err)}
-  .qpct{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;min-width:40px;text-align:right;flex:none}
-  .q-row{display:flex;align-items:center;gap:10px;padding:3.5px 0}
-  .q-row .ql{width:150px;flex:none;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .q-row .qn{font-size:11.5px;color:var(--dim2);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:96px;text-align:right}
-  .q-row .qr{font-size:11px;color:var(--dim2);white-space:nowrap;min-width:78px;text-align:right}
-  .acct-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(370px,1fr));gap:var(--gap)}
+  .qpct{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;
+        font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace;
+        width:42px;text-align:right;flex:none}
+  /* 一个模型一行：名 | 条 | 百分比 | 剩余/总量 | 到期。hover 只换背景不动 border —— 免得行抖动。
+     名可缩（ellipsis）而数字/日期 flex:none，所以再长的模型名也挤不掉到期时间。 */
+  .q-row{display:flex;align-items:center;gap:8px;padding:3.5px 8px;margin:0 -8px;border-radius:7px;
+         transition:background .12s}
+  .q-row:hover{background:var(--hover)}
+  .q-row:hover .qbar{border-color:var(--dim2)}
+  .q-row .ql{flex:0 1 150px;min-width:56px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .q-row .qn{font-size:11.5px;color:var(--dim2);font-variant-numeric:tabular-nums;
+             font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace;
+             white-space:nowrap;min-width:96px;text-align:right;flex:none}
+  .q-row .qr{font-size:11px;color:var(--dim2);font-variant-numeric:tabular-nums;
+             font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace;
+             white-space:nowrap;min-width:78px;text-align:right;flex:none}
+  /* 到期分档汇总：一档一行，档内按模型平铺 token 量。今天/已过期走 --err 强调（要立刻处理），
+     3 天内走 --warn，更久走灰。颜色全走 --* 变量，深浅两套主题自动跟随。 */
+  .exp{display:flex;flex-direction:column;gap:7px}
+  .exp-row{display:flex;gap:14px;align-items:flex-start;padding:8px 11px;border-radius:9px;
+           border:1px solid var(--line);background:var(--card2)}
+  .exp-row.hot{border-color:color-mix(in srgb,var(--err) 42%,var(--line));
+               background:color-mix(in srgb,var(--err) 9%,var(--card2))}
+  .exp-row.bad{border-color:color-mix(in srgb,var(--err) 30%,var(--line));
+               background:color-mix(in srgb,var(--err) 5%,var(--card2))}
+  .exp-row.warm{border-color:color-mix(in srgb,var(--warn) 34%,var(--line))}
+  .exp-bd{flex:none;width:96px;display:flex;flex-direction:column;gap:2px}
+  .exp-bd b{font-size:12.5px;font-weight:700;color:var(--dim)}
+  .exp-row.hot .exp-bd b,.exp-row.bad .exp-bd b{color:var(--err)}
+  .exp-row.warm .exp-bd b{color:var(--warn)}
+  .exp-bd span{font-size:11px;color:var(--dim2);font-variant-numeric:tabular-nums}
+  .exp-items{display:flex;flex-wrap:wrap;gap:5px 16px;min-width:0;flex:1;align-content:flex-start}
+  .exp-mi{font-size:12px;color:var(--fg);white-space:nowrap}
+  .exp-mi em{font-style:normal;margin-left:5px;color:var(--dim);font-variant-numeric:tabular-nums;
+             font-family:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace}
+  .exp-none{font-size:11.5px;color:var(--dim2);padding:2px 0}
+  .acct-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:var(--gap)}
   .acct-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
   .acct-card.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
   .acct-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -960,21 +991,74 @@ function pctUsed(it) {
   }
   return null;
 }
-// 条形宽度画「剩余」比例（直观：条越短越该省着用）
-function qbarHtml(used) {
+// 条形宽度画「剩余」比例（直观：条越短越该省着用）。tip 非空时挂条上做 hover 详情。
+function qbarHtml(used, tip) {
   const cls = used == null ? "" : used >= 90 ? " danger" : used >= 70 ? " warn" : "";
   const rem = used == null ? 100 : 100 - used;
   const txt = used == null ? "--" : rem.toFixed(0) + "%";
-  return '<span class="qbar' + cls + '"><i style="width:' + rem + '%"></i></span><span class="qpct">' + txt + "</span>";
+  const tt = tip ? ' title="' + esc(tip) + '"' : "";
+  return '<span class="qbar' + cls + '"' + tt + '><i style="width:' + rem + '%"></i></span><span class="qpct">' + txt + "</span>";
 }
-function qrowHtml(name, it) {
-  const nums = it && it.total != null && it.remaining != null ? fmtTok(it.remaining) + " / " + fmtTok(it.total) : "";
-  const reset = (it && (it.reset || it.period_end)) || "";
-  const title = [name, nums ? "剩 " + nums : "", reset].filter(Boolean).join(" · ");
-  return '<div class="q-row" title="' + esc(title) + '"><span class="ql">' + esc(name) + "</span>" +
-    qbarHtml(pctUsed(it)) + '<span class="qn">' + esc(nums || "—") + '</span><span class="qr">' + esc(reset) + "</span></div>";
+/* 同一个模型可能被多个套餐/entitlement 各自授予（items 里 source_key 各不相同），于是 name 会重复好几条。
+   byModel 按模型合并成一条，口径对齐 exe 面板的 quotaSummary()：
+   先按 (模型 + source_key) 去重（同源取窗口更紧的那条），再按模型累加 remaining / total / used，
+   percent_used 累加成 pctSum/n —— 合并后的百分比由 pctSum/n 重算，不沿用某一条的原值。
+   period_end 取**最早**的那个：最早过期的先失效，那才是真正的约束。 */
+function quotaSrcKey(it) {
+  const s = String((it && it.source_key) || "").trim();
+  if (s) return s;
+  return [((it && it.name) || "?"), (it && it.total) ?? "", (it && it.remaining) ?? "", (it && (it.reset || it.period_end)) || ""].join("|");
 }
-// 一个号的额度明细：套餐头 + 按模型一条
+function quotaWinRank(it) {
+  const w = String((it && it.window) || "").toLowerCase();
+  if (w === "daily") return 50;
+  if (w.startsWith("hours:")) return 40;
+  if (w === "weekly") return 30;
+  if (w === "monthly") return 20;
+  return 10;
+}
+/* 同号内按 (模型 + source_key) 去重：同一套餐授予的同一模型只算一次；同源出现多条时取
+   「窗口更紧」的那条。口径与 exe main.js quotaSummary() 里的 bySource 完全一致。
+   号卡片合并、顶部到期分档都用它，保证两处不各算各的。 */
+function dedupItems(items) {
+  const best = new Map();
+  for (const it of (items || [])) {
+    const name = String(it.name || "?").trim() || "?";
+    const k = name + " " + quotaSrcKey(it);
+    const prev = best.get(k);
+    if (!prev || quotaWinRank(it) > quotaWinRank(prev)) best.set(k, it);
+  }
+  return [...best.values()];
+}
+function byModel(items) {
+  const out = new Map();
+  for (const it of dedupItems(items)) {
+    const name = String(it.name || "?").trim() || "?";
+    let g = out.get(name);
+    if (!g) { g = { name: name, remaining: 0, total: 0, used: 0, pctSum: 0, n: 0, end: "" }; out.set(name, g); }
+    if (it.remaining != null) g.remaining += Number(it.remaining) || 0;
+    if (it.total != null) g.total += Number(it.total) || 0;
+    if (it.used != null) g.used += Number(it.used) || 0;
+    if (it.percent_used != null) { g.pctSum += Number(it.percent_used) || 0; g.n += 1; }
+    const e = it.period_end || it.reset || "";
+    if (e && (!g.end || String(e) < String(g.end))) g.end = e;
+  }
+  return [...out.values()].sort((a, b) => (b.total || 0) - (a.total || 0));
+}
+// 合并后一个模型一行，横向排：模型名 | 剩余条 | 百分比 | 剩余/总量 | 到期
+function qrowHtml(g) {
+  const used = g.n ? g.pctSum / g.n : (g.total > 0 && g.remaining != null ? (1 - g.remaining / g.total) * 100 : null);
+  const nums = g.total != null && g.remaining != null ? fmtTok(g.remaining) + " / " + fmtTok(g.total) : "";
+  const end = g.end || "";
+  const tip = [g.name, nums ? "剩余 " + fmtTok(g.remaining) + " · 总量 " + fmtTok(g.total) : "",
+    used != null ? "已用 " + used.toFixed(0) + "%" : "", end ? "到期 " + end : ""].filter(Boolean).join(" · ");
+  return '<div class="q-row">' +
+    '<span class="ql" title="' + esc(g.name) + '">' + esc(g.name) + "</span>" +
+    qbarHtml(used, tip) +
+    '<span class="qn" title="' + esc(tip) + '">' + esc(nums || "—") + "</span>" +
+    '<span class="qr" title="' + esc(end) + '">' + esc(end) + "</span></div>";
+}
+// 一个号的额度明细：套餐头 + 每个模型一条（同名已合并）
 function quotaRowsHtml(q) {
   if (!q || q.is_empty) return '<div style="color:var(--dim2);font-size:12px;padding:6px 0">没有额度数据</div>';
   let html = "";
@@ -986,7 +1070,12 @@ function quotaRowsHtml(q) {
       esc(tier || "") + (exp ? (tier ? " · " : "") + "至 " + esc(exp) : "") + "</div>";
   }
   const items = q.items || [];
-  html += items.length ? items.map((it) => qrowHtml(it.name || "?", it)).join("") : qrowHtml("总用量", q);
+  const rows = items.length ? byModel(items) : [{
+    name: "总用量", remaining: q.remaining, total: q.total, used: q.used,
+    pctSum: q.percent_used, n: q.percent_used != null ? 1 : 0,
+    end: q.period_end || q.plan_expire || ""
+  }];
+  html += rows.map((g) => qrowHtml(g)).join("");
   return html;
 }
 function accountBodyHtml(a) {
@@ -1120,6 +1209,75 @@ function quotaSummaryInner() {
       "</div>" +
     "</div></div>";
 }
+/* ---------- 顶部：按到期时间分档的汇总（这次新增，摆在「额度汇总」上方） ----------
+   数据只从 QMAP（每个已查额度号的 items）聚合，不碰任何 fetch / 接口。
+   每号先 dedupItems 去重（与 byModel、exe quotaSummary 同一口径，避免同套餐重复计），
+   再把每条按自己的 period_end 落档：已过期 / 今天到期 / 3 天内 / 更久。
+   档内按模型累加 **remaining（剩余 token）** —— 要的是「还能用、且快失效」的量，
+   所以取剩余而不是总量（总量放 hover title）。没标到期时间的归「更久」且不算紧急。
+   日期按本地整天差算（0=今天，1..3=3 天内，>3=更久）。基数 = 已查额度且非空的号。 */
+const EXP_BUCKETS = [
+  { label: "已过期", cls: "bad" },
+  { label: "今天到期", cls: "hot" },
+  { label: "3 天内", cls: "warm" },
+  { label: "更久", cls: "" }
+];
+function expDayDiff(end) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(end == null ? "" : end));
+  if (!m) return null;
+  const t = new Date(+m[1], +m[2] - 1, +m[3]);
+  const n = new Date();
+  return Math.round((t - new Date(n.getFullYear(), n.getMonth(), n.getDate())) / 864e5);
+}
+function expBucketOf(days) {
+  if (days == null) return 3;   // 没标到期时间：不紧急
+  if (days < 0) return 0;
+  if (days === 0) return 1;
+  if (days <= 3) return 2;
+  return 3;
+}
+function acctExpiryInner() {
+  const acc = EXP_BUCKETS.map(() => new Map());
+  let accounts = 0;
+  for (const id of Object.keys(QMAP)) {
+    const q = QMAP[id];
+    if (!q || !q.data || q.data.is_empty) continue;
+    const items = q.data.items || [];
+    if (!items.length) continue;
+    accounts++;
+    for (const it of dedupItems(items)) {
+      const name = String(it.name || "?").trim() || "?";
+      const b = expBucketOf(expDayDiff(it.period_end || it.reset));
+      const m = acc[b].get(name) || { remaining: 0, total: 0 };
+      if (it.remaining != null) m.remaining += Number(it.remaining) || 0;
+      if (it.total != null) m.total += Number(it.total) || 0;
+      acc[b].set(name, m);
+    }
+  }
+  const all = (ACC && ACC.accounts || []).length;
+  const rows = EXP_BUCKETS.map((B, i) => {
+    const ms = [...acc[i].entries()].sort((a, b) => (b[1].remaining || 0) - (a[1].remaining || 0));
+    const sum = ms.reduce((a, x) => a + (x[1].remaining || 0), 0);
+    const items = ms.length
+      ? '<div class="exp-items">' + ms.map(([k, m]) => {
+          const tip = k + " · 剩余 " + fmtTok(m.remaining) + (m.total ? " / 总量 " + fmtTok(m.total) : "");
+          return '<span class="exp-mi" title="' + esc(tip) + '">' + esc(k) + "<em>" + esc(fmtTok(m.remaining)) + "</em></span>";
+        }).join("") + "</div>"
+      : '<div class="exp-none">' + (accounts ? "没有额度" : "还没有已查额度的号") + "</div>";
+    return '<div class="exp-row ' + B.cls + '">' +
+      '<div class="exp-bd"><b>' + esc(B.label) + "</b><span>" +
+        (ms.length ? ms.length + " 个模型 · " + fmtTok(sum) : "—") + "</span></div>" + items + "</div>";
+  }).join("");
+  const base = accounts
+    ? "基于已查额度的 " + accounts + " 个号" + (all ? " / 共 " + all : "") + " · 按剩余 token · 最早失效优先"
+    : "还没有已查额度的号 —— 点「查询全部额度」";
+  return '<h2>额度到期 <span class="grow"></span>' +
+    '<span style="color:var(--dim2);font-weight:400">' + esc(base) + "</span></h2>" +
+    '<div class="body"><div class="exp">' + rows + "</div></div>";
+}
+function acctExpiryHtml() {
+  return '<div class="panel" data-p="acct-expiry">' + acctExpiryInner() + "</div>";
+}
 /* ---------- 局部更新：账号页的额度（查询额度不再整页重画） ---------- */
 function patchAcct() {
   if (route !== "acct" || !ACC) return;
@@ -1128,6 +1286,7 @@ function patchAcct() {
     if (a) el.innerHTML = accountBodyHtml(a);
   }
   PH("acct-summary", quotaSummaryInner());
+  PH("acct-expiry", acctExpiryInner());
 }
 function viewAcct() {
   const st = ACC || {};
@@ -1147,7 +1306,7 @@ function viewAcct() {
       <div class="n mono" style="font-size:13px">…</div>
       <div class="foot mono" style="word-break:break-all">${esc(st.store_dir || "—")}</div></div>
   </div>`;
-  return quotaSummaryHtml() + statCards + `
+  return acctExpiryHtml() + quotaSummaryHtml() + statCards + `
   <div class="panel"><h2>账号池 <span class="grow"></span>
     <span style="color:var(--dim2);font-weight:400">切换会关掉并重启 ZCode，会二次确认</span></h2>
     <div class="body" style="display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">
