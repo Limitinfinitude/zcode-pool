@@ -333,11 +333,51 @@ let route = (location.hash || "").slice(1);
 // /proxy/admin 也指向这个页面：没有 hash 时按路径落到「管理」
 if (!route || !ROUTES[route]) route = /\/admin\/?$/.test(location.pathname) ? "admin" : "dash";
 let S = null, LOGS = [], fails = 0, tickN = 0, showAll = false;
-// 用户正在操作表单（下拉/输入框）时，别让轮询重画把控件换掉 —— 否则下拉会「选不中」
+// 用户正在操作表单（下拉/输入框）时，轮询式刷新先别动 —— 否则可能把用户手里的控件换掉：
+// 老 bug 就是重画换掉 <select> 导致「下拉选不中」。这个守卫**保留**。
 function isEditing() {
   const el = document.activeElement;
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
 }
+/* ---------- 局部更新（轮询专用） ----------
+   为什么：render() 是 `view.innerHTML = view()` —— **整个内容区重建**。
+   鼠标底下那个按钮会被销毁重建，它身上 `transition: background .12s` 就从头再播一遍，
+   每 2 秒一次 —— 用户看到「鼠标一移到按钮上就一直跳」。
+   所以把「数据刷新」和「重建 DOM」拆开：轮询走 patch()，只改会变的几个节点，
+   绝不 innerHTML = view()。render() 只在切路由 / 用户主动操作 / 结构真变了时调。 */
+const PATCHED = { dash: 1, chan: 1, logs: 1, usage: 1 };   // 这几个页面走 patch()，轮询不重建
+let PATCH_SIG = "", ACC_SIG = "", MAIL_SIG = "", USAGE_SIG = "";
+// 数据指纹：给「不手写 patch 的页面」用 —— 轮询时指纹没变就一个 DOM 都不动
+function dataSig() {
+  const s = S || {};
+  const ch = (s.channels || []).map((c) => {
+    const h = c.health || {};
+    return [c.id, c.name, c.frozen == null ? "" : c.frozen, h.lastAt, h.lastMs, h.rate, h.streak].join(":");
+  }).join("|");
+  const acc = ((ACC && ACC.accounts) || []).map((a) => [a.id, a.name, a.is_active].join(":")).join("|");
+  const mail = ((MAIL && MAIL.accounts) || []).map((a) => [a.email, a.status, a.has_token, a.verified_at].join(":")).join("|");
+  const m = s.mint || {};
+  return [s.external, s.bind, s.port, (s.keys || []).length, s.quotaAccounts, s.lastRefresh,
+    (s.quotaFailed || []).join(","), m.pool, m.mints10min, m.mints, m.active,
+    s.policy, s.modelMode, s.pinned, JSON.stringify(s.modelMap || {}), (s.models || []).join(","), s.upstream,
+    ACC && ACC.active_account_id, ACC && ACC.zcode_running, ACC && ACC.zcode_path, ACC && ACC.store_dir,
+    MBOX && MBOX.email, ((MBOX && MBOX.data && MBOX.data.messages) || []).length,
+    ch, acc, mail].join("~");
+}
+function accSig() {
+  const a = ACC || {}, list = a.accounts || [];
+  return [list.length, list.map((x) => x.id).join(","), a.active_account_id, a.zcode_running, a.zcode_path, a.zcode_path_ok, a.store_dir].join("~");
+}
+function mailSig() {
+  const list = (MAIL && MAIL.accounts) || [];
+  return [list.length, list.map((x) => [x.email, x.status, x.note, x.has_token].join(",")).join("|")].join("~");
+}
+const sigUsage = () => JSON.stringify((USAGE && USAGE.rows) || []);
+// DOM 小工具：找不到节点就跳过（说明当前不在那个页 / 结构变了）
+const P = (n) => document.querySelector('[data-p="' + n + '"]');
+const PT = (n, v) => { const e = P(n); if (e) e.textContent = v == null ? "" : v; };
+const PH = (n, v) => { const e = P(n); if (e) e.innerHTML = v; };
+
 // 用量页：明细 + 聚合 + 服务端筛选
 let USAGE = null;
 // 仪表盘卡片要的聚合（/proxy/usage/stats）
@@ -468,57 +508,88 @@ function viewDash() {
   <div class="cards">
     <div class="card">
       <div class="lb">服务状态</div>
-      <div class="n" style="color:${s.external ? "var(--ok)" : "var(--dim)"}">${s.external ? "运行中" : "已关闭"}</div>
-      <div class="foot">127.0.0.1:${s.port ?? "—"}</div>
+      <div class="n" data-p="dp-svc" style="color:${s.external ? "var(--ok)" : "var(--dim)"}">${s.external ? "运行中" : "已关闭"}</div>
+      <div class="foot" data-p="dp-svc-foot">127.0.0.1:${s.port ?? "—"}</div>
     </div>
     <div class="card">
       <div class="lb">当前路由</div>
-      <div class="n" style="font-size:18px">${esc(s.routed ? nameOf(s.routed.account) : "—")}</div>
-      <div class="foot">${esc(s.routed ? s.routed.model + " · 第 " + s.routed.tries + " 个候选" : "还没有请求")}</div>
+      <div class="n" data-p="dp-route" style="font-size:18px">${esc(s.routed ? nameOf(s.routed.account) : "—")}</div>
+      <div class="foot" data-p="dp-route-foot">${esc(s.routed ? s.routed.model + " · 第 " + s.routed.tries + " 个候选" : "还没有请求")}</div>
     </div>
     <div class="card">
-      <div class="lb">生成速度${s.tpsEstimated ? '<span class="ex">估算</span>' : ""}</div>
-      <div class="n">${rate(s.tps || 0)}<small>tok/s</small></div>
-      <div class="foot">首字节 ${s.ttfbMs == null ? "—" : s.ttfbMs + " ms"} · 总时长 ${s.totalMs == null ? "—" : (s.totalMs / 1000).toFixed(1) + " s"}</div>
+      <div class="lb" data-p="dp-tps-lb">生成速度${s.tpsEstimated ? '<span class="ex">估算</span>' : ""}</div>
+      <div class="n" data-p="dp-tps">${rate(s.tps || 0)}<small>tok/s</small></div>
+      <div class="foot" data-p="dp-tps-foot">首字节 ${s.ttfbMs == null ? "—" : s.ttfbMs + " ms"} · 总时长 ${s.totalMs == null ? "—" : (s.totalMs / 1000).toFixed(1) + " s"}</div>
     </div>
     <div class="card">
       <div class="lb">累计输出</div>
-      <div class="n">${num(s.tokens)}<small>tok</small></div>
-      <div class="foot">${num(Math.round((s.bytes || 0) / 1024))} KB · ${num(s.served)} 次请求</div>
+      <div class="n" data-p="dp-tok">${num(s.tokens)}<small>tok</small></div>
+      <div class="foot" data-p="dp-tok-foot">${num(Math.round((s.bytes || 0) / 1024))} KB · ${num(s.served)} 次请求</div>
     </div>
     <div class="card">
       <div class="lb">平均响应时间</div>
-      <div class="n">${t.avgMs == null ? "—" : num(t.avgMs)}<small>ms</small></div>
+      <div class="n" data-p="dp-avg">${t.avgMs == null ? "—" : num(t.avgMs)}<small>ms</small></div>
       <div class="foot">整发时长 · 来自用量记录</div>
     </div>
     <div class="card">
       <div class="lb">请求数</div>
-      <div class="n">${num(t.n)}</div>
-      <div class="foot">${t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功"}</div>
+      <div class="n" data-p="dp-req">${num(t.n)}</div>
+      <div class="foot" data-p="dp-req-foot">${t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功"}</div>
     </div>
     <div class="card">
       <div class="lb">累计 Token</div>
-      <div class="n">${num((t.in || 0) + (t.out || 0))}</div>
-      <div class="foot">输入 ${num(t.in)} · 输出 ${num(t.out)}</div>
+      <div class="n" data-p="dp-tokall">${num((t.in || 0) + (t.out || 0))}</div>
+      <div class="foot" data-p="dp-tokall-foot">输入 ${num(t.in)} · 输出 ${num(t.out)}</div>
     </div>
     <div class="card" role="button" tabindex="0" style="cursor:pointer" onclick="location.hash='#chan'" title="去渠道页看明细">
       <div class="lb">号池健康 <span class="grow"></span><span style="color:var(--dim2);display:flex;align-items:center;gap:3px">明细${ICON("chevronR", 12)}</span></div>
-      <div class="n">${probed}<small>/ ${chans.length}</small></div>
-      <div class="foot">${down ? '<span style="color:var(--err)">' + down + " 个不通</span>" : "已探测的正常"}${froz ? ' · <span style="color:var(--warn)">' + froz + " 个被冻</span>" : ""}</div>
+      <div class="n" data-p="dp-health">${probed}<small>/ ${chans.length}</small></div>
+      <div class="foot" data-p="dp-health-foot">${down ? '<span style="color:var(--err)">' + down + " 个不通</span>" : "已探测的正常"}${froz ? ' · <span style="color:var(--warn)">' + froz + " 个被冻</span>" : ""}</div>
     </div>
   </div>
 
   <div class="panel">
-    <h2>吞吐 <span class="grow"></span><span style="color:var(--dim2);font-weight:400">最近 ${HIST.length} 次采样 · 2 秒一次</span></h2>
+    <h2>吞吐 <span class="grow"></span><span data-p="dp-spark-note" style="color:var(--dim2);font-weight:400">最近 ${HIST.length} 次采样 · 2 秒一次</span></h2>
     <div class="body"><canvas id="spark" style="height:64px"></canvas></div>
   </div>
 
   <div class="grid2" style="margin-top:var(--gap)">
-    <div class="panel"><h2>探测延迟分布</h2><div class="body">${histogram()}</div></div>
-    <div class="panel"><h2>请求结果分布</h2><div class="body">${errDist()}</div></div>
+    <div class="panel"><h2>探测延迟分布</h2><div class="body" data-p="dp-histo">${histogram()}</div></div>
+    <div class="panel"><h2>请求结果分布</h2><div class="body" data-p="dp-errdist">${errDist()}</div></div>
   </div>
 
 `;
+}
+/* ---------- 局部更新：仪表盘（只改数字/图，不换 DOM） ---------- */
+function patchDash() {
+  const s = S || {};
+  const t = (STATS && STATS.total) || { n: 0, in: 0, out: 0, fail: 0, avgMs: null };
+  const chans = s.channels || [];
+  const nameOf = (id) => (chans.find((c) => c.id === id) || {}).name || id;
+  const probed = chans.filter((c) => (c.health || {}).lastAt).length;
+  const down = chans.filter((c) => (c.health || {}).lastMs == null && (c.health || {}).lastAt).length;
+  const froz = chans.filter((c) => c.frozen).length;
+  const svc = P("dp-svc");
+  if (svc) { svc.textContent = s.external ? "运行中" : "已关闭"; svc.style.color = s.external ? "var(--ok)" : "var(--dim)"; }
+  PT("dp-svc-foot", "127.0.0.1:" + (s.port ?? "—"));
+  PT("dp-route", s.routed ? nameOf(s.routed.account) : "—");
+  PT("dp-route-foot", s.routed ? s.routed.model + " · 第 " + s.routed.tries + " 个候选" : "还没有请求");
+  PH("dp-tps-lb", "生成速度" + (s.tpsEstimated ? '<span class="ex">估算</span>' : ""));
+  PH("dp-tps", rate(s.tps || 0) + "<small>tok/s</small>");
+  PT("dp-tps-foot", "首字节 " + (s.ttfbMs == null ? "—" : s.ttfbMs + " ms") + " · 总时长 " + (s.totalMs == null ? "—" : (s.totalMs / 1000).toFixed(1) + " s"));
+  PH("dp-tok", num(s.tokens) + "<small>tok</small>");
+  PT("dp-tok-foot", num(Math.round((s.bytes || 0) / 1024)) + " KB · " + num(s.served) + " 次请求");
+  PH("dp-avg", (t.avgMs == null ? "—" : num(t.avgMs)) + "<small>ms</small>");
+  PT("dp-req", num(t.n));
+  PH("dp-req-foot", t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功");
+  PT("dp-tokall", num((t.in || 0) + (t.out || 0)));
+  PT("dp-tokall-foot", "输入 " + num(t.in) + " · 输出 " + num(t.out));
+  PH("dp-health", probed + "<small>/ " + chans.length + "</small>");
+  PH("dp-health-foot", (down ? '<span style="color:var(--err)">' + down + " 个不通</span>" : "已探测的正常") + (froz ? ' · <span style="color:var(--warn)">' + froz + " 个被冻</span>" : ""));
+  PT("dp-spark-note", "最近 " + HIST.length + " 次采样 · 2 秒一次");
+  PH("dp-histo", histogram());
+  PH("dp-errdist", errDist());
+  drawSpark();
 }
 
 /* ---------- 视图：渠道 ---------- */
@@ -538,14 +609,14 @@ function viewChan() {
     const st = c.frozen ? ["bad", c.frozen]
       : !h.lastAt ? ["dim", "未探测"]
       : h.lastMs != null ? ["ok", "正常"] : ["bad", "不通"];
-    return "<tr>" +
+    return '<tr data-p="crow" data-id="' + esc(c.id) + '">' +
       '<td class="mono">' + esc(c.name) + "</td>" +
-      '<td><span class="tag ' + st[0] + '">' + st[1] + "</span></td>" +
-      '<td class="mono num">' + (h.lastMs == null ? "—" : h.lastMs + " ms") + "</td>" +
-      "<td>" + bars(h) + "</td>" +
-      '<td class="mono num">' + (h.rate == null ? "—" : h.rate + "%") + "</td>" +
-      '<td class="mono num">' + (h.streak ? '<span style="color:var(--err)">' + h.streak + "</span>" : "0") + "</td>" +
-      '<td class="mono" style="color:var(--dim2)">' + (h.lastAt ? hhmmss(h.lastAt) : "—") + "</td>" +
+      '<td data-p="c-st"><span class="tag ' + st[0] + '">' + st[1] + "</span></td>" +
+      '<td class="mono num" data-p="c-ms">' + (h.lastMs == null ? "—" : h.lastMs + " ms") + "</td>" +
+      '<td data-p="c-bars">' + bars(h) + "</td>" +
+      '<td class="mono num" data-p="c-rate">' + (h.rate == null ? "—" : h.rate + "%") + "</td>" +
+      '<td class="mono num" data-p="c-streak">' + (h.streak ? '<span style="color:var(--err)">' + h.streak + "</span>" : "0") + "</td>" +
+      '<td class="mono" data-p="c-last" style="color:var(--dim2)">' + (h.lastAt ? hhmmss(h.lastAt) : "—") + "</td>" +
       '<td style="text-align:right;white-space:nowrap">' +
         '<button class="mini" data-probe="' + esc(c.id) + '">' + ICON("play", 14) + "探测</button>" +
         (c.frozen ? ' <button class="mini" data-unfreeze="' + esc(c.id) + '">' + ICON("power", 14) + "解冻</button>" : "") +
@@ -553,7 +624,7 @@ function viewChan() {
   }).join("");
   return '<div class="panel">' +
     '<h2>号池渠道 <span class="grow"></span>' +
-    '<span style="color:var(--dim2);font-weight:400;margin-right:10px">' + chans.length + "/" + all.length +
+    '<span data-p="chan-count" style="color:var(--dim2);font-weight:400;margin-right:10px">' + chans.length + "/" + all.length +
     " · 每 90 秒自动探一个（带抖动）</span>" +
     ["all", "down", "frozen", "untested"].map((k) =>
       '<button class="mini' + (chanFilter === k ? " on" : "") + '" data-f="' + k + '">' +
@@ -564,6 +635,39 @@ function viewChan() {
           : emptyState("inbox", "号池是空的 —— 先去「账号库」加号")) +
     '<div class="foot-note">探测走的是<b>额度接口</b>（免费、不用验证码），不真发模型请求 —— 那会烧号的额度。' +
     "「解冻」清掉本地的「用尽 / 限流」标记，上游恢复了就不用干等 TTL。</div></div>";
+}
+/* ---------- 局部更新：渠道健康表（服务端每 90 秒轮换探测，值会变） ---------- */
+function patchChan() {
+  const s = S || {};
+  const all = s.channels || [];
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const want = all.filter((c) => {
+    const h = c.health || {};
+    if (chanFilter === "down") return c.frozen || (h.lastAt && h.lastMs == null);
+    if (chanFilter === "frozen") return !!c.frozen;
+    if (chanFilter === "untested") return !h.lastAt;
+    return true;
+  });
+  const rows = document.querySelectorAll('[data-p="crow"]');
+  // 行集合变了（筛选、增删号、冻结状态变）→ 结构变了，交回 render()
+  if ([...rows].map((r) => r.dataset.id).join(",") !== want.map((c) => c.id).join(",")) { render(); return; }
+  PT("chan-count", want.length + "/" + all.length + " · 每 90 秒自动探一个（带抖动）");
+  for (const tr of rows) {
+    const c = byId.get(tr.dataset.id);
+    if (!c) continue;
+    const h = c.health || {};
+    const st = c.frozen ? ["bad", c.frozen]
+      : !h.lastAt ? ["dim", "未探测"]
+      : h.lastMs != null ? ["ok", "正常"] : ["bad", "不通"];
+    const q = (n) => tr.querySelector('[data-p="c-' + n + '"]');
+    const a = q("st"); if (a) a.innerHTML = '<span class="tag ' + st[0] + '">' + st[1] + "</span>";
+    const b = q("ms"); if (b) b.textContent = h.lastMs == null ? "—" : h.lastMs + " ms";
+    const d = q("bars"); if (d) d.innerHTML = bars(h);
+    const e = q("rate"); if (e) e.textContent = h.rate == null ? "—" : h.rate + "%";
+    const f = q("streak"); if (f) f.innerHTML = h.streak ? '<span style="color:var(--err)">' + h.streak + "</span>" : "0";
+    const g = q("last"); if (g) g.textContent = h.lastAt ? hhmmss(h.lastAt) : "—";
+    if (!!c.frozen !== !!tr.querySelector("[data-unfreeze]")) { render(); return; }   // 「解冻」按钮有无 = 结构
+  }
 }
 
 /* ---------- 视图：策略 ---------- */
@@ -710,48 +814,88 @@ function lvl(line) {
   if (line.includes("] start ") || line.includes("init ") || line.includes("loaded ")) return ["dim", "系统"];
   return ["dim", "其他"];
 }
-function viewLogs() {
-  // 服务端分页：LOGP.lines 是「本页」的 50 条（旧 -> 新），显示时翻过来（新在上）
+function logRel() {
   const all = LOGP.lines.slice().reverse();
   const rel = showAll ? all : all.filter((l) => !NOISE.some((n) => l.includes(n)));
-  const rows = rel.map((l) => {
+  return { all, rel };
+}
+function logRowsHtml(rel) {
+  return rel.map((l) => {
     const cls = lvl(l), t = l.slice(0, 19), rest = l.slice(20).replace(/^\[[a-z\-]+\] /, "");
     return '<tr><td class="mono" style="color:var(--dim2);white-space:nowrap">' + esc(t) +
       '</td><td><span class="tag ' + cls[0] + '">' + cls[1] + "</span></td>" +
       '<td class="mono" style="word-break:break-all">' + esc(rest) + "</td></tr>";
   }).join("");
+}
+function logStatsHtml(rel) {
   const n = (k) => rel.filter((l) => lvl(l)[1] === k).length;
+  return '<span class="tag ok">成功 ' + n("成功") + "</span>" +
+    '<span class="tag bad">风控 ' + n("风控") + "</span>" +
+    '<span class="tag warn">限流 ' + n("限流") + "</span>" +
+    '<span class="tag info">探测 ' + n("探测") + "</span>" +
+    '<span class="tag mint">取码 ' + n("取码") + "</span>";
+}
+function logPageInfo(rel, all) {
   const limit = LOGP.limit, total = LOGP.total, page = LOGP.page;
   const pages = Math.max(1, Math.ceil(total / limit));
-  const offset = page * limit;
-  const from = total === 0 ? 0 : offset + 1;
-  const to = Math.min(total, offset + limit);
+  const from = total === 0 ? 0 : page * limit + 1;
+  const to = Math.min(total, page * limit + limit);
+  return "第 " + (page + 1) + " / " + pages + " 页 · 共 " + num(total) +
+    " 条 · 本页 " + from + "-" + to + (rel.length !== all.length ? "（过滤调试后 " + rel.length + " 条）" : "");
+}
+const LOGPAGER_STYLE = "display:flex;align-items:center;gap:6px;padding:11px 16px;border-top:1px solid var(--line2);flex-wrap:wrap";
+function logPagerInner(rel, all) {
+  const limit = LOGP.limit, total = LOGP.total, page = LOGP.page;
+  const pages = Math.max(1, Math.ceil(total / limit));
   // 页码：当前页附近 ±2，再补首尾
   const nums = [];
   for (let p = Math.max(0, page - 2); p <= Math.min(pages - 1, page + 2); p++) nums.push(p);
-  const pager = '<div style="display:flex;align-items:center;gap:6px;padding:11px 16px;border-top:1px solid var(--line2);flex-wrap:wrap">' +
-    '<button class="mini" data-logp="0"' + (page === 0 ? " disabled" : "") + '>' + ICON("chevronL", 14) + '首页</button>' +
+  return '<button class="mini" data-logp="0"' + (page === 0 ? " disabled" : "") + '>' + ICON("chevronL", 14) + '首页</button>' +
     '<button class="mini" data-logp="' + (page - 1) + '"' + (page === 0 ? " disabled" : "") + '>' + ICON("chevronL", 14) + '上一页</button>' +
     nums.map((p) => '<button class="mini' + (p === page ? " on" : "") + '" data-logp="' + p + '">' + (p + 1) + "</button>").join("") +
     '<button class="mini" data-logp="' + (page + 1) + '"' + (page >= pages - 1 ? " disabled" : "") + '>下一页' + ICON("chevronR", 14) + '</button>' +
     '<button class="mini" data-logp="' + (pages - 1) + '"' + (page >= pages - 1 ? " disabled" : "") + '>末页' + ICON("chevronR", 14) + '</button>' +
     '<span class="grow"></span>' +
-    '<span style="color:var(--dim2);font-size:12px">第 ' + (page + 1) + " / " + pages + " 页 · 共 " + num(total) +
-    " 条 · 本页 " + from + "-" + to + (rel.length !== all.length ? "（过滤调试后 " + rel.length + " 条）" : "") + "</span></div>";
+    '<span data-p="loginfo" style="color:var(--dim2);font-size:12px">' + logPageInfo(rel, all) + "</span>";
+}
+function wireLogPager() {
+  for (const b of document.querySelectorAll("[data-logp]")) {
+    b.onclick = () => { if (b.disabled) return; LOGP.page = Number(b.dataset.logp); loadLogs(); };
+  }
+}
+function viewLogs() {
+  // 服务端分页：LOGP.lines 是「本页」的 50 条（旧 -> 新），显示时翻过来（新在上）
+  const { all, rel } = logRel();
+  const rows = logRowsHtml(rel);
+  const limit = LOGP.limit;
+  LOGP._pp = LOGP.page; LOGP._pg = Math.max(1, Math.ceil(LOGP.total / limit));
   return '<div class="panel"><h2>请求日志 <span class="grow"></span>' +
     '<label style="font-weight:400;color:var(--dim);cursor:pointer;margin-right:10px;font-size:12px">' +
     '<input type="checkbox" id="all" ' + (showAll ? "checked" : "") + ' style="vertical-align:-1px"> 含调试</label>' +
     '<span style="color:var(--dim2);font-weight:400">每页 ' + limit + ' 条 · 每 2 秒刷新</span></h2>' +
-    pager +
-    '<div class="body" style="border-bottom:1px solid var(--line2);padding:11px 16px;display:flex;gap:6px;flex-wrap:wrap">' +
-    '<span class="tag ok">成功 ' + n("成功") + "</span>" +
-    '<span class="tag bad">风控 ' + n("风控") + "</span>" +
-    '<span class="tag warn">限流 ' + n("限流") + "</span>" +
-    '<span class="tag info">探测 ' + n("探测") + "</span>" +
-    '<span class="tag mint">取码 ' + n("取码") + "</span></div>" +
-    (rows ? '<div class="tscroll"><table><thead><tr><th>时间</th><th>类型</th><th>内容</th></tr></thead><tbody>' + rows + "</tbody></table></div>"
+    '<div data-p="logpager" style="' + LOGPAGER_STYLE + '">' + logPagerInner(rel, all) + "</div>" +
+    '<div class="body" data-p="logstats" style="border-bottom:1px solid var(--line2);padding:11px 16px;display:flex;gap:6px;flex-wrap:wrap">' +
+    logStatsHtml(rel) + "</div>" +
+    (rows ? '<div class="tscroll"><table><thead><tr><th>时间</th><th>类型</th><th>内容</th></tr></thead><tbody data-p="logrows">' + rows + "</tbody></table></div>"
           : emptyState("list", "这一页没有日志")) +
     "</div>";
+}
+/* ---------- 局部更新：日志页（每 2 秒刷新，只换 tbody / 统计 / 翻页控件） ---------- */
+function patchLogs() {
+  if (route !== "logs") return;
+  const { all, rel } = logRel();
+  const tb = document.querySelector('[data-p="logrows"]');
+  if (!!tb !== (rel.length > 0)) { render(); return; }   // 空/非空切换 = 结构变化
+  if (tb) tb.innerHTML = logRowsHtml(rel);
+  PH("logstats", logStatsHtml(rel));
+  const pages = Math.max(1, Math.ceil(LOGP.total / LOGP.limit));
+  if (LOGP._pp !== LOGP.page || LOGP._pg !== pages) {
+    const pg = P("logpager");
+    if (pg) { pg.innerHTML = logPagerInner(rel, all); wireLogPager(); }
+    LOGP._pp = LOGP.page; LOGP._pg = pages;
+  } else {
+    PT("loginfo", logPageInfo(rel, all));
+  }
 }
 
 /* ---------- 视图：账号（账号池） ---------- */
@@ -807,17 +951,19 @@ function quotaRowsHtml(q) {
   html += items.length ? items.map((it) => qrowHtml(it.name || "?", it)).join("") : qrowHtml("总用量", q);
   return html;
 }
-function accountCard(a) {
+function accountBodyHtml(a) {
   const q = QMAP[a.id];
-  let body;
-  if (q && q.loading) body = '<div class="empty breathe sm">' + ICON("refresh", 16) + "<span>查询额度中…</span></div>";
-  else if (q && q.error) body = '<div style="color:var(--err);font-size:12px;padding:6px 0">' + esc(q.error) + "</div>";
-  else if (q && q.data) body = quotaRowsHtml(q.data);
-  else body = '<div style="color:var(--dim2);font-size:12px;padding:6px 0">还没查询额度</div>';
+  if (q && q.loading) return '<div class="empty breathe sm">' + ICON("refresh", 16) + "<span>查询额度中…</span></div>";
+  if (q && q.error) return '<div style="color:var(--err);font-size:12px;padding:6px 0">' + esc(q.error) + "</div>";
+  if (q && q.data) return quotaRowsHtml(q.data);
+  return '<div style="color:var(--dim2);font-size:12px;padding:6px 0">还没查询额度</div>';
+}
+function accountCard(a) {
+  const body = accountBodyHtml(a);
   return '<div class="acct-card' + (a.is_active ? " on" : "") + '">' +
     '<div class="acct-hd"><b>' + esc(a.name) + "</b>" + (a.is_active ? '<span class="tag ok">当前</span>' : "") +
       '<span class="grow"></span><span style="color:var(--dim2);font-size:11px">' + esc(idLabel(a)) + "</span></div>" +
-    "<div>" + body + "</div>" +
+    '<div data-p="acard-body" data-id="' + esc(a.id) + '">' + body + "</div>" +
     '<div class="acct-acts">' +
       '<button class="mini" data-act-quota="' + esc(a.id) + '">' + ICON("search", 14) + "查询额度</button>" +
       // 这个按钮**只查不领**（结果出到下面的面板，领取是面板里套餐那一行的事）。
@@ -831,6 +977,9 @@ function accountCard(a) {
 }
 // 顶部汇总：所有已查号的总剩余 / 总量 / 覆盖几个号 / 按模型聚合
 function quotaSummaryHtml() {
+  return '<div class="panel" data-p="acct-summary">' + quotaSummaryInner() + "</div>";
+}
+function quotaSummaryInner() {
   let accounts = 0, total = 0, remaining = 0, hasTotal = false;
   const byModel = new Map();
   for (const id of Object.keys(QMAP)) {
@@ -873,12 +1022,21 @@ function quotaSummaryHtml() {
         '<span class="qn" style="min-width:120px;text-align:right">' + esc(nums || "—") + "</span></div>";
     })
     .join("");
-  return '<div class="panel"><h2>额度汇总 <span class="grow"></span><span style="color:var(--dim2);font-weight:400">' +
+  return '<h2>额度汇总 <span class="grow"></span><span style="color:var(--dim2);font-weight:400">' +
     (QLOAD.running ? "查询中 " + QLOAD.done + "/" + QLOAD.total : "所有号合计") + "</span></h2>" +
     '<div class="body">' + cards +
       (rows ? '<div style="margin-top:12px">' + rows + "</div>"
             : '<div style="color:var(--dim2);font-size:12px;margin-top:8px">还没有额度数据 —— 点账号卡片上的「查询额度」，或上面的「查询全部额度」</div>') +
-    "</div></div>";
+    "</div>";
+}
+/* ---------- 局部更新：账号页的额度（查询额度不再整页重画） ---------- */
+function patchAcct() {
+  if (route !== "acct" || !ACC) return;
+  for (const el of document.querySelectorAll('[data-p="acard-body"]')) {
+    const a = (ACC.accounts || []).find((x) => x.id === el.dataset.id);
+    if (a) el.innerHTML = accountBodyHtml(a);
+  }
+  PH("acct-summary", quotaSummaryInner());
 }
 function viewAcct() {
   const st = ACC || {};
@@ -1080,18 +1238,20 @@ async function api(url, body) {
   if (!r.ok || (d && d.error)) throw new Error((d && d.error) || ("HTTP " + r.status));
   return d;
 }
-async function loadAccounts() {
+// quiet=true 表示这是轮询触发的：数据指纹没变就别重建 DOM（不闪）
+async function loadAccounts(quiet) {
   try { ACC = await api("/proxy/accounts"); }
   catch (e) { ACC = { accounts: [], error: String(e.message || e) }; }
-  if (route === "acct") render();
+  if (route === "acct") { if (quiet) { if (accSig() !== ACC_SIG) render(); } else render(); }
 }
-async function loadMail() {
+async function loadMail(quiet) {
   try { MAIL = await api("/proxy/mail"); }
   catch (e) { MAIL = { accounts: [], error: String(e.message || e) }; }
   const live = new Set(((MAIL && MAIL.accounts) || []).map((a) => a.email));
   for (const e of [...MAIL_SEL]) if (!live.has(e)) MAIL_SEL.delete(e);
   // mbox 页也要重绘：下拉框的选项来自 MAIL，直接进 #mbox 时得等它加载完再回填选中项
-  if (route === "mail" || route === "mbox") render();
+  if (route === "mail") { if (quiet) { if (mailSig() !== MAIL_SIG) render(); } else render(); }
+  else if (route === "mbox") render();
 }
 async function loadMbox() {
   if (!MBOX.email) { MBOX.data = null; MBOX.err = ""; if (route === "mbox") render(); return; }
@@ -1114,20 +1274,20 @@ async function accDetail(kind, id) {
   } catch (e) { ACC_DETAIL = { kind, id, error: String(e.message || e) }; }
   if (route === "acct") render();
 }
-/* ---------- 额度：单号 / 全部 + 汇总 ---------- */
+/* ---------- 额度：单号 / 全部 + 汇总（走 patchAcct，只改对应的卡片和汇总） ---------- */
 async function loadQuota(id, quiet) {
   if (!quiet) QMAP[id] = { loading: true };
-  if (route === "acct") render();
+  if (route === "acct") patchAcct();
   try { QMAP[id] = { data: await api("/proxy/account/quota?id=" + encodeURIComponent(id)) }; }
   catch (e) { QMAP[id] = { error: String(e.message || e) }; }
-  if (route === "acct") render();
+  if (route === "acct") patchAcct();
 }
 async function loadAllQuotas() {
   if (QLOAD.running) return;
   const list = (ACC && ACC.accounts) || [];
   if (!list.length) return;
   QLOAD.running = true; QLOAD.done = 0; QLOAD.total = list.length;
-  if (route === "acct") render();
+  if (route === "acct") patchAcct();
   const queue = list.slice();
   // 并发 3 —— 上游额度接口不便宜，别一次全打出去
   const worker = async () => {
@@ -1135,12 +1295,12 @@ async function loadAllQuotas() {
       const a = queue.shift();
       await loadQuota(a.id, true);
       QLOAD.done++;
-      if (route === "acct") render();
+      if (route === "acct") patchAcct();   // 只更新汇总进度条，不重建
     }
   };
   await Promise.all([worker(), worker(), worker()]);
   QLOAD.running = false;
-  if (route === "acct") render();
+  if (route === "acct") patchAcct();
 }
 // 首次进账号页自动查一轮；号特别多才不自动（免得把上游打爆），留「查询全部额度」手动点
 function maybeAutoQuota() {
@@ -1199,7 +1359,7 @@ async function loadLogs() {
     if (LOGP.page > pages - 1) { LOGP.page = pages - 1; LOGP.loading = false; return loadLogs(); }
   } catch (e) {}
   LOGP.loading = false;
-  if (route === "logs") render();
+  if (route === "logs") patchLogs();   // 只换 tbody / 统计 / 翻页控件，不整页重建
 }
 // 仪表盘三张卡 + 日志分布都要聚合数据
 async function loadStats() {
@@ -1210,6 +1370,7 @@ async function loadStats() {
     ]);
     STATS = s; LOGS = l.lines || [];
   } catch (e) {}
+  if (route === "dash") patchDash();   // 聚合到货后补一次局部更新
 }
 function wireAcct() {
   const rl = document.querySelector("[data-acc-reload]"); if (rl) rl.onclick = () => loadAccounts();
@@ -1331,20 +1492,9 @@ function usageFail(r) {
   const c = String(r.code || "").trim();
   return c !== "" && c !== "200" && c !== "0";
 }
-function viewUsage() {
-  const u = USAGE || {};
-  const rows = u.rows || [];
-  const t = (u.stats && u.stats.total) || { n: 0, in: 0, out: 0, fail: 0, avgTtfb: null, avgMs: null };
-  const cards = `
-  <div class="cards">
-    <div class="card"><div class="lb">总请求</div><div class="n">${num(t.n)}</div>
-      <div class="foot">${t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功"}</div></div>
-    <div class="card"><div class="lb">输入 token</div><div class="n">${num(t.in)}</div><div class="foot">请求侧</div></div>
-    <div class="card"><div class="lb">输出 token</div><div class="n">${num(t.out)}</div><div class="foot">生成侧</div></div>
-    <div class="card"><div class="lb">平均 TTFB</div><div class="n">${t.avgTtfb == null ? "—" : num(t.avgTtfb)}<small>ms</small></div><div class="foot">首字节延迟</div></div>
-    <div class="card"><div class="lb">平均总时长</div><div class="n">${t.avgMs == null ? "—" : (t.avgMs / 1000).toFixed(1)}<small>s</small></div><div class="foot">整发</div></div>
-  </div>`;
-  const body = rows.length ? rows.map((r) => {
+function usageRowsHtml() {
+  const rows = (USAGE && USAGE.rows) || [];
+  return rows.length ? rows.map((r) => {
     const bad = usageFail(r);
     const label = r.status + (r.code ? " · " + r.code : "");
     const st = bad ? ["bad", label] : ["ok", String(r.status)];
@@ -1361,8 +1511,23 @@ function viewUsage() {
         (r.tries > 1 ? ' <span class="tag dim">候选' + r.tries + "</span>" : "") + "</td>" +
       "</tr>";
   }).join("") : '<tr><td colspan="6">' + emptyState("usage", "还没有用量记录 —— 往 /v1/messages 发几发就有了") + "</td></tr>";
+}
+function viewUsage() {
+  const u = USAGE || {};
+  const rows = u.rows || [];
+  const t = (u.stats && u.stats.total) || { n: 0, in: 0, out: 0, fail: 0, avgTtfb: null, avgMs: null };
+  const cards = `
+  <div class="cards">
+    <div class="card"><div class="lb">总请求</div><div class="n" data-p="dp-u-req">${num(t.n)}</div>
+      <div class="foot" data-p="dp-u-req-foot">${t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功"}</div></div>
+    <div class="card"><div class="lb">输入 token</div><div class="n" data-p="dp-u-in">${num(t.in)}</div><div class="foot">请求侧</div></div>
+    <div class="card"><div class="lb">输出 token</div><div class="n" data-p="dp-u-out">${num(t.out)}</div><div class="foot">生成侧</div></div>
+    <div class="card"><div class="lb">平均 TTFB</div><div class="n" data-p="dp-u-ttfb">${t.avgTtfb == null ? "—" : num(t.avgTtfb)}<small>ms</small></div><div class="foot">首字节延迟</div></div>
+    <div class="card"><div class="lb">平均总时长</div><div class="n" data-p="dp-u-ms">${t.avgMs == null ? "—" : (t.avgMs / 1000).toFixed(1)}<small>s</small></div><div class="foot">整发</div></div>
+  </div>`;
+  const body = usageRowsHtml();
   return cards + '<div class="panel"><h2>请求明细 <span class="grow"></span>' +
-    '<span style="color:var(--dim2);font-weight:400">' + rows.length + " / " + num(u.total || 0) + " 条</span></h2>" +
+    '<span data-p="usage-count" style="color:var(--dim2);font-weight:400">' + rows.length + " / " + num(u.total || 0) + " 条</span></h2>" +
     '<div class="body" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line2);padding:11px 16px">' +
     '<div class="copy" style="max-width:170px"><input id="ufacct" placeholder="按账号筛选" value="' + esc(UFILTER.acct) +
       '" style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 inherit"></div>' +
@@ -1372,9 +1537,34 @@ function viewUsage() {
       (UFILTER.fail ? "checked" : "") + ' style="vertical-align:-1px"> 只看失败</label>' +
     '<span class="grow"></span><button class="mini" id="urefresh">' + ICON("refresh", 14) + '刷新</button></div>' +
     '<div class="scroll"><table><thead><tr><th>时间</th><th>账号</th><th>模型 → 上游</th><th class="num">TTFB / 总时长</th>' +
-    '<th class="num">in / out</th><th>状态</th></tr></thead><tbody>' + body + "</tbody></table></div>" +
+    '<th class="num">in / out</th><th>状态</th></tr></thead><tbody data-p="usageRows">' + body + "</tbody></table></div>" +
     '<div class="foot-note">一行 = 一次转发。结构化用量，和「日志」页的原始流水不是一回事。' +
     "数据在 <span class=\"mono\">usage.jsonl</span>，超 32MB 自动轮转。</div></div>";
+}
+/* ---------- 局部更新：用量页（KPI 直接改；明细行变了才换 tbody，并保住滚动位置） ---------- */
+function patchUsage() {
+  if (route !== "usage" || !USAGE) return;
+  const u = USAGE;
+  const t = (u.stats && u.stats.total) || { n: 0, in: 0, out: 0, fail: 0, avgTtfb: null, avgMs: null };
+  PT("dp-u-req", num(t.n));
+  PH("dp-u-req-foot", t.fail ? '<span style="color:var(--err)">失败 ' + num(t.fail) + "</span>" : "全部成功");
+  PT("dp-u-in", num(t.in));
+  PT("dp-u-out", num(t.out));
+  PH("dp-u-ttfb", (t.avgTtfb == null ? "—" : num(t.avgTtfb)) + "<small>ms</small>");
+  PH("dp-u-ms", (t.avgMs == null ? "—" : (t.avgMs / 1000).toFixed(1)) + "<small>s</small>");
+  PT("usage-count", ((u.rows || []).length) + " / " + num(u.total || 0) + " 条");
+  const tb = document.querySelector('[data-p="usageRows"]');
+  const rows = u.rows || [];
+  if (!tb) return;
+  // 空/非空切换 = 结构变化，交回 render()
+  if ((document.querySelectorAll('[data-p="usageRows"] tr td[colspan]').length > 0) !== (rows.length === 0)) { render(); return; }
+  const sig = sigUsage();
+  if (sig === USAGE_SIG) return;
+  USAGE_SIG = sig;
+  const sc = tb.closest(".scroll");
+  const top = sc ? sc.scrollTop : 0;
+  tb.innerHTML = usageRowsHtml();
+  if (sc) sc.scrollTop = top;
 }
 
 async function loadUsage() {
@@ -1388,7 +1578,7 @@ async function loadUsage() {
       fetch("/proxy/usage/stats", { cache: "no-store" }).then((r) => r.json()),
     ]);
     USAGE = { rows: d.rows || [], total: d.total || 0, stats: s || {} };
-    if (route === "usage") render();
+    if (route === "usage") patchUsage();
   } catch (e) { rep("usage-throw", (e && (e.stack || e.message)) || e); }
 }
 
@@ -1461,6 +1651,14 @@ function viewAdmin() {
   </div></div>`;
 }
 
+/* ---------- 局部更新分发：轮询只走这里，不重建 DOM ---------- */
+function patch() {
+  if (route === "dash") patchDash();
+  else if (route === "chan") patchChan();
+  else if (route === "logs") patchLogs();
+  else if (route === "usage") patchUsage();
+}
+
 /* ---------- 渲染 ---------- */
 function view() {
   return route === "dash" ? viewDash() : route === "chan" ? viewChan()
@@ -1472,18 +1670,16 @@ function render() {
   $("title").textContent = ROUTES[route];
   $("stitle").textContent = route === "dash" ? "本机号池 · 只监听 127.0.0.1" : "";
   for (const a of $("nav").children) a.className = a.dataset.r === route ? "on" : "";
-  // 正在输入时不要重建 DOM，否则每 2 秒把焦点/已输入内容冲掉
-  const ae = document.activeElement;
-  const typing = ae && $("view").contains(ae) && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA");
-  if (!typing) {
-    $("view").innerHTML = view();
-    if (route === "dash") drawSpark();
-    if (route === "usage") { wireUsage(); if (!USAGE) loadUsage(); }
-    if (route === "acct") { wireAcct(); if (!ACC) loadAccounts(); maybeAutoQuota(); }
-    if (route === "mail") { wireMail(); if (!MAIL) loadMail(); }
-    if (route === "mbox") { wireMbox(); if (!MBOX.data && !MBOX.loading && MBOX.email) loadMbox(); }
-    if (route === "logs" && !LOGP.lines.length && !LOGP.loading) loadLogs();
-  }
+  // 整页重建只在：切路由 / 用户主动操作 / 结构真变了时发生。轮询走 patch()，不进这里。
+  $("view").innerHTML = view();
+  if (route === "dash") drawSpark();
+  if (route === "usage") { wireUsage(); USAGE_SIG = sigUsage(); if (!USAGE) loadUsage(); }
+  if (route === "acct") { wireAcct(); if (!ACC) loadAccounts(); maybeAutoQuota(); }
+  if (route === "mail") { wireMail(); if (!MAIL) loadMail(); }
+  if (route === "mbox") { wireMbox(); if (!MBOX.data && !MBOX.loading && MBOX.email) loadMbox(); }
+  if (route === "logs" && !LOGP.lines.length && !LOGP.loading) loadLogs();
+  // 记下这次渲染对应的数据指纹：轮询时指纹没变就一个 DOM 都不动
+  ACC_SIG = accSig(); MAIL_SIG = mailSig(); PATCH_SIG = dataSig();
 
   for (const b of document.querySelectorAll("[data-act]")) {
     b.onclick = () => {
@@ -1536,9 +1732,7 @@ function render() {
   }
   const all = $("all");
   if (all) all.onchange = () => { showAll = all.checked; render(); };
-  for (const b of document.querySelectorAll("[data-logp]")) {
-    b.onclick = () => { if (b.disabled) return; LOGP.page = Number(b.dataset.logp); loadLogs(); };
-  }
+  wireLogPager();
 }
 
 $("nav").onclick = (e) => {
@@ -1572,30 +1766,38 @@ async function tick() {
     if (tickN === 1) rep("status-ok", "keys=" + Object.keys(S).length);
     HIST.push(S.tps || 0);
     while (HIST.length > 60) HIST.shift();
-    // 日志页：本页每 2 秒刷一次（服务端分页）
-    if (route === "logs") loadLogs();
-    // 仪表盘卡片（平均响应时间 / 请求数 / 累计 Token）和日志分布：别每 2 秒都算
-    if (route === "dash" && (tickN % 5 === 1 || !STATS)) loadStats();
-    // 用量页：状态轮询顺带刷一下（服务端筛选，跟着 UFILTER 走）
-    if (route === "usage" && tickN % 3 === 1) loadUsage();
-    if (route === "acct" && tickN % 5 === 1) loadAccounts();
-    if (route === "mail" && tickN % 5 === 1) loadMail();
+    // 顶栏 / 侧栏的状态点：直接改节点（本来就不重建 DOM）
     $("sdot2").className = "dot" + (S.external ? " on" : "");
     $("sfoot").textContent = (S.external ? "运行中" : "已关闭") + " · :" + S.port;
     $("ldot").className = "dot" + (S.generating ? " on live" : S.external ? " on" : "");
     $("ltext").textContent = S.generating ? "正在生成" : S.external ? "空闲" : "已停止";
     $("live").className = "pill" + (S.generating ? " live" : "");
     if (tickN === 1) rep("pre-render", "ok");
-    // ⚠ 正在操作表单时**别重画**。render() 重建 innerHTML，会把 <select> 整个换掉 ——
-    // 用户刚点开下拉、轮询一到，原生下拉就被销毁，表现就是「选不中邮箱」。
-    if (isEditing()) { if (tickN === 1) rep("render-skipped", "正在操作表单"); }
-    else render();
+    // ⚠ 核心：轮询只做**局部更新**，绝不 `innerHTML = view()`。
+    // 鼠标底下的按钮不会被销毁重建，hover 动画就不会每 2 秒重播（不跳）。
+    patch();
+    // 轮询式拉数据。isEditing() 守卫**留住**：正在操作表单（下拉/输入）时先不刷，
+    // 免得把用户手里的控件换掉（「重画换掉 <select> 导致选不中」那个老 bug）。
+    if (!isEditing()) {
+      // 日志页：本页每 2 秒刷一次（服务端分页）→ 只换 tbody
+      if (route === "logs") loadLogs();
+      // 仪表盘卡片和日志分布：别每 2 秒都算
+      if (route === "dash" && (tickN % 5 === 1 || !STATS)) loadStats();
+      // 用量页：状态轮询顺带刷一下（服务端筛选，跟着 UFILTER 走）
+      if (route === "usage" && tickN % 3 === 1) loadUsage();
+      // 账号 / 邮箱：数据指纹没变就不重建（结构变了才 render）
+      if (route === "acct" && tickN % 5 === 1) loadAccounts(true);
+      if (route === "mail" && tickN % 5 === 1) loadMail(true);
+      // 其余页面（策略 / 管理 / 设置 / 邮箱管理）：指纹没变就一个 DOM 都不动
+      if (!PATCHED[route] && dataSig() !== PATCH_SIG) render();
+    }
     if (tickN === 1) rep("post-render", "ok");
   } catch (e) {
     rep("tick-throw", (e && (e.stack || e.message)) || e);
     if (++fails > 2) { $("ltext").textContent = "连不上"; $("sfoot").textContent = "连不上"; }
   }
 }
+render();   // 首屏先画一版（S 还是空的没关系，第一次 tick 会补上真实数据）
 tick();
 setInterval(tick, 2000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
