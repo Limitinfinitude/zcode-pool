@@ -24,20 +24,10 @@ let filter = "";
 let relayRefreshing = false;
 let relay = { running: false, port: 0, served: 0, switched: 0, clientAccount: null, routedAccount: null, routedModel: null, routedTries: null, nextAccount: null, quotaAccounts: 0, quotaTotal: 0, quotaFailed: [], source: "pool", clientQuota: null, deviceMode: "route", blocked: 0, pausedFor: 0, lastRefresh: null, upstream: "", external: false, externalModels: [], mint: { pool: 0, waiters: 0, active: false, mints: 0, mints10min: 0 }, patch: { found: false, applied: false } };
 
-let mintFrame = null;
-function syncMintFrame(on) {
-  if (on && !mintFrame) {
-    mintFrame = document.createElement("iframe");
-    mintFrame.src = `http://127.0.0.1:${relay.port || relay.defaultPort || 8899}/mint`;
-    mintFrame.setAttribute("aria-hidden", "true");
-    mintFrame.setAttribute("tabindex", "-1");
-    mintFrame.style.cssText = "position:fixed;left:0;bottom:0;width:440px;height:340px;border:0;opacity:0;pointer-events:none;z-index:-1";
-    document.body.appendChild(mintFrame);
-  } else if (!on && mintFrame) {
-    mintFrame.remove();
-    mintFrame = null;
-  }
-}
+// 取码页的隐形 iframe（`/mint`）2026-09-30 起不再挂载：上游已关闭模型请求的验证码校验，
+// 反代不再取码。留着的是**领取**那条链路 —— 它用的是独立的验证码窗口（captcha.html），与此无关。
+// 万一上游改回去：把下面这段恢复，并在 gateway.rs 的 handle_external 里重新调 take_param()。
+function syncMintFrame(_on) {}
 let tab = "mailbox";
 const REFRESH_CLAIM_COOLDOWN_MS = 60_000;
 let refreshClaim = { running: false, done: 0, total: 0, cooldownUntil: 0 };

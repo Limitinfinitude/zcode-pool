@@ -124,6 +124,21 @@ pub struct Settings {
 
     #[serde(default)]
     pub relay_model_pinned: Option<String>,
+
+    /// 反代自己走不走代理。**空 = 直连**。
+    ///
+    /// 为什么需要它：反代的 ureq **不读系统代理**，一向是直连的 —— 所以只能靠
+    /// 全局 TUN 把它的流量抓走。上游按出口 IP 判风控时，没 TUN 就直接 3012。
+    /// 有了这个设置，可以只让反代走代理，不用整天开着 TUN。
+    #[serde(default)]
+    pub relay_proxy: Option<String>,
+}
+
+pub fn set_relay_proxy(paths: &Paths, url: &str) -> Result<(), String> {
+    let mut s = load_settings(paths);
+    let v = url.trim();
+    s.relay_proxy = if v.is_empty() { None } else { Some(v.to_string()) };
+    save_settings(paths, &s)
 }
 
 pub fn set_relay_model_policy(paths: &Paths, mode: &str, pinned: Option<&str>) -> Result<(), String> {
@@ -446,13 +461,34 @@ pub fn set_relay_external(paths: &Paths, on: bool) -> Result<(), String> {
 }
 
 pub fn load_settings(paths: &Paths) -> Settings {
-    match fs::read_to_string(paths.settings_file()) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-            eprintln!("settings.json 损坏，已回退默认值：{e}");
-            Settings::default()
-        }),
-        Err(_) => Settings::default(),
+    let f = paths.settings_file();
+    // ⚠ 读失败**不能静默回默认值**：默认值里 relay_port 是 None，调用方 unwrap_or(DEFAULT_PORT)
+    //   就会把监听端口从用户设的 8898 悄悄变成 8899（踩过两次，查了很久）。
+    //   最可能的读失败原因是**另一个进程正在原子替换这个文件**（写 tmp → rename），
+    //   Windows 上此刻读会撞共享冲突 —— 等 40ms 重试一次基本就过去了。
+    for attempt in 0..2 {
+        match fs::read_to_string(&f) {
+            Ok(s) => {
+                return serde_json::from_str(&s).unwrap_or_else(|e| {
+                    eprintln!("settings.json 损坏，已回退默认值：{e}");
+                    crate::flowlog::log("store", "settings-parse-fail", &e.to_string());
+                    Settings::default()
+                })
+            }
+            Err(e) => {
+                if attempt == 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    continue;
+                }
+                // ⚠ release 版是 windows_subsystem="windows"，**eprintln 没人看得见** ——
+                //   所以必须同时写日志，否则这个「设置回退默认值」永远是静默的。
+                let msg = format!("settings.json 读不了（{e}）—— 回退默认值，监听端口会变 8899！");
+                eprintln!("{msg}");
+                crate::flowlog::log("store", "settings-read-fail", &msg);
+            }
+        }
     }
+    Settings::default()
 }
 
 pub fn save_settings(paths: &Paths, s: &Settings) -> Result<(), String> {

@@ -311,7 +311,14 @@ pub fn claim_last_result() -> Value {
 }
 
 fn record_claim_result(payload: &Value) {
-    *last_claim_guard() = Some(json!({ "at": store::now_ts(), "result": payload }));
+    // ⚠ `at` 是给人看的字符串；前端要**比时间先后**，字符串比不了 ——
+    //   它和 unix 秒数相减会得到 NaN，判断恒为 false，成功分支就永远进不去
+    //   （症状：领取成功了却一直显示「正在领取中」然后超时）。所以另给一个数值 `atMs`。
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    *last_claim_guard() = Some(json!({ "at": store::now_ts(), "atMs": ms, "result": payload }));
 }
 
 pub fn emit_state_changed(app: &AppHandle) {
@@ -1642,9 +1649,12 @@ pub fn run() {
             relay().set_app(app.handle().clone());
 
             relay().restore_persisted(&paths);
-            if store::load_settings(&paths).relay_external == Some(true) {
+            // ⚠ 设置**只读一次**。以前这里读两遍（先判断开关、再取端口），
+            //   两次之间文件若被原子替换，第二遍会读失败 → 回默认值 → 端口悄悄变 8899。
+            let st0 = store::load_settings(&paths);
+            if st0.relay_external == Some(true) {
 
-                let want_port = store::load_settings(&paths)
+                let want_port = st0
                     .relay_port
                     .unwrap_or(gateway::DEFAULT_PORT);
                 match relay().start(paths, want_port) {

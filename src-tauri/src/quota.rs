@@ -19,7 +19,7 @@ fn no_window(prog: &str) -> std::process::Command {
 pub const QUOTA_LIMIT_URL: &str = "https://open.bigmodel.cn/api/monitor/usage/quota/limit";
 pub const SUBSCRIPTION_URL: &str = "https://open.bigmodel.cn/api/biz/subscription/list";
 pub const BILLING_BALANCE_URL: &str = "https://zcode.z.ai/api/v1/zcode-plan/billing/balance";
-pub const CLIENT_APP_VERSION: &str = "3.14.3";
+pub const CLIENT_APP_VERSION: &str = "3.14.4";
 
 pub(crate) fn client_platform() -> String {
     let os = crate::zcrypto::node_platform_for(std::env::consts::OS);
@@ -109,10 +109,77 @@ pub(crate) fn client_timezone() -> String {
     iana_time_zone::get_timezone().unwrap_or_else(|_| "unknown".to_string())
 }
 
+
+/// 从 exe 的 PE 版本资源里读 `x.y.z`。
+///
+/// 为什么不用注册表：便携版/绿色安装根本没有卸载项（这台机器就是），
+/// 而 exe 的版本资源**永远**在 —— 客户端一升级它就变，是最靠得住的一手来源。
+#[cfg(windows)]
+fn version_from_exe(path: &str) -> Option<String> {
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO,
+    };
+    let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let mut handle: u32 = 0;
+        let size = GetFileVersionInfoSizeW(wide.as_ptr(), &mut handle);
+        if size == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; size as usize];
+        if GetFileVersionInfoW(wide.as_ptr(), 0, size, buf.as_mut_ptr() as *mut core::ffi::c_void) == 0 {
+            return None;
+        }
+        // 根块就是单个反斜杠（UTF-16 里是 0x5c 0x00）
+        let root: [u16; 2] = [0x5c, 0x00];
+        let mut ptr: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut len: u32 = 0;
+        if VerQueryValueW(buf.as_ptr() as *const core::ffi::c_void, root.as_ptr(), &mut ptr, &mut len) == 0
+            || ptr.is_null()
+        {
+            return None;
+        }
+        let ffi = &*(ptr as *const VS_FIXEDFILEINFO);
+        let ms = ffi.dwFileVersionMS;
+        let ls = ffi.dwFileVersionLS;
+        let (a, b, c) = (ms >> 16, ms & 0xffff, ls >> 16);
+        if a == 0 && b == 0 && c == 0 {
+            return None;
+        }
+        Some(format!("{a}.{b}.{c}"))
+    }
+}
+
+#[cfg(not(windows))]
+fn version_from_exe(_path: &str) -> Option<String> {
+    None
+}
+
+/// 优先从**当前配置的 ZCode 安装**里读版本 —— 跟着客户端升级自动走。
+fn version_from_install() -> Option<String> {
+    let paths = crate::store::Paths::detect();
+    let (exe, ok) = crate::store::effective_zcode_path(&paths);
+    if !ok {
+        return None;
+    }
+    let v = version_from_exe(&exe)?;
+    let v = normalize_version(&v);
+    if v.trim().is_empty() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
 pub(crate) fn zcode_app_version() -> String {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CACHE
         .get_or_init(|| {
+            // ① 最准的一手来源：ZCode 安装的 exe 版本资源
+            if let Some(v) = version_from_install() {
+                return v;
+            }
+            // ② 退而求其次：注册表卸载项
             let mut best: Option<String> = None;
             for hive in [
                 r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",

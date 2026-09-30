@@ -947,7 +947,7 @@ function viewPolicy() {
       '<span class="grow"></span><button class="mini danger" data-mm="' + esc(f) + '">' + ICON("trash", 14) + '删</button></div>').join("") +
     '<div style="color:var(--dim2);font-size:11.5px;margin-top:8px">' +
     "官方换模型名或下线某个模型时，不用改客户端 —— 在这里把请求的名字翻成上游还有的名字。" +
-    "候选是按**上游模型**算额度的，所以映射会在选号之前生效。</div>" +
+    '候选是按<b style="color:var(--fg);font-weight:500">上游模型</b>算额度的，所以映射会在选号之前生效。</div>' +
     "</div></div>";
 }
 
@@ -970,6 +970,18 @@ function viewSettings() {
         <div class="copy" style="max-width:200px"><input id="portin" class="mono" value="${port}"
           style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 ui-monospace,monospace"></div>
         <button class="mini" data-set="port">${ICON("check", 14)}改端口</button>
+      </div>
+
+      <div class="kv"><span class="k">出站代理</span>
+        <div class="copy" style="max-width:280px"><input id="rproxy" class="mono" value="${esc(s.relayProxy || "")}"
+          placeholder="留空 = 直连，如 http://127.0.0.1:7890"
+          style="background:none;border:0;color:var(--fg);width:100%;outline:none;font:12px/1.4 ui-monospace,monospace"></div>
+        <button class="mini" data-set="rproxy">${ICON("check", 14)}保存</button>
+      </div>
+      <div style="color:var(--dim2);font-size:11.5px;margin:-2px 0 6px 84px">
+        留空 = 直连。上游会看出口 IP，直连被判异常时（表现为 3012 unusual activity），
+        填一个代理就<b style="color:var(--fg);font-weight:500">只让反代走它</b>，不必为此开着全局 TUN。
+        只支持 <span class="mono">http://</span> 和 <span class="mono">socks5://</span>，不支持带账号密码。
       </div>
 
       <div class="kv"><span class="k">监听地址</span>
@@ -1005,13 +1017,7 @@ function viewSettings() {
         <span class="v">${s.quotaAccounts || 0} 个号${s.lastRefresh ? " · " + esc(s.lastRefresh) : ""}</span>
         <span class="grow"></span><button class="mini" data-set="refresh-quota">${ICON("refresh", 14)}立刻刷新</button>
       </div>
-      <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">选号就靠这份缓存 —— 以前只能回工具面板点</div>
-
-      <div class="kv" style="margin-top:12px"><span class="k">验证码池</span>
-        <span class="v">${m.pool ?? 0} 个 · 累计 ${num(m.mints)} · 近 10 分钟 ${num(m.mints10min)}</span>
-        <span class="grow"></span><span class="tag ${m.active ? "ok" : "dim"}">${m.active ? "活跃" : "待命"}</span>
-      </div>
-      <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">在工具窗口里自己取，不用管。空闲时不取（阿里云按次计费，狂取会被风控）</div>
+      <div style="color:var(--dim2);font-size:11.5px;margin-top:6px">选号和仪表盘都读这份缓存；刷新后立刻用于选号。</div>
 
       <div class="kv" style="margin-top:14px"><span class="k">ZCode 路径</span>
         <div class="copy" style="max-width:420px"><input id="zpath" class="mono" placeholder="C:\\...\\ZCode.exe" value="${esc(((ACC || {}).zcode_path) || "")}"
@@ -1528,9 +1534,6 @@ function viewAcct() {
     <div class="card"><div class="lb">额度缓存</div>
       <div class="n" data-p="acct-qcache">${S ? (S.quotaAccounts || 0) : 0}<small>/ ${list.length}</small></div>
       <div class="foot">${S && S.lastRefresh ? esc(S.lastRefresh) : "还没刷过"}</div></div>
-    <div class="card"><div class="lb">验证码池</div>
-      <div class="n">${S ? ((S.mint || {}).pool || 0) : 0}</div>
-      <div class="foot">近 10 分钟 ${S ? num((S.mint || {}).mints10min || 0) : 0}</div></div>
   </div>`;
   return quotaSummaryHtml() + statCards + `
   <div class="panel"><h2>账号池 <span class="grow"></span>
@@ -1813,7 +1816,7 @@ function maybeAutoQuota() {
 const CLAIM_POLL_MS = 1500;
 const CLAIM_POLL_MAX = 40; 
 async function claimSubmit(id, planId, planName) {
-  CLAIM = { id, plan: planName || planId, running: true, msg: "正在领取…无感验证中，通常几秒就好，不用管", ok: null, startedAt: Math.floor(Date.now() / 1000) - 2 };
+  CLAIM = { id, plan: planName || planId, running: true, msg: "正在领取…无感验证中，通常几秒就好，不用管", ok: null, startedAt: Math.floor(Date.now() / 1000) - 2, startedAtMs: Date.now() - 2000 };
   if (route === "acct") render();
   try {
     const r = await api("/proxy/account/claim-start", { id, plan_id: planId, auto: true });
@@ -1832,7 +1835,9 @@ async function pollClaim() {
     let r = null;
     try { r = await fetch("/proxy/account/claim-result", { cache: "no-store" }).then((x) => x.json()); } catch (e) {}
     const res = r && r.result;
-    if (res && res.accountId === CLAIM.id && (r.at || 0) >= CLAIM.startedAt) {
+    // 用数值时间戳比（`at` 是给人看的字符串，跟数字比会变 NaN → 恒 false，成功分支进不去）
+    const fresh = (r.atMs || 0) >= (CLAIM.startedAtMs || 0);
+    if (res && res.accountId === CLAIM.id && fresh) {
       if (res.ok === false) CLAIM = { id: CLAIM.id, msg: "领取失败：" + (res.message || "未知原因"), running: false, ok: false, startedAt: 0 };
       else CLAIM = { id: CLAIM.id, msg: "已领取：" + (res.planName || "") + (res.endsAt ? "（至 " + new Date(res.endsAt).toLocaleString("zh-CN", { hour12: false }) + "）" : ""), running: false, ok: true, startedAt: 0 };
       loadQuota(CLAIM.id, true);
@@ -1840,7 +1845,7 @@ async function pollClaim() {
       return;
     }
   }
-  if (CLAIM.running) { CLAIM.running = false; CLAIM.msg = "等了约 60 秒还没结果 —— 可能被风控拦了，去工具窗口（exe 面板）看一眼有没有弹验证码；若已滑过，点「刷新额度缓存」或重新查额度看结果"; if (route === "acct") render(); }
+  if (CLAIM.running) { CLAIM.running = false; CLAIM.msg = "还没等到结果（约 60 秒）—— 可能卡在验证码上：去 exe 面板看一眼有没有弹窗要你滑一下；滑完点「查询额度」看是否已到账"; if (route === "acct") render(); }
 }
 async function loadLogs() {
   if (LOGP.loading) return;
@@ -2304,8 +2309,6 @@ function viewAdmin() {
       <div class="foot">限流 / 用尽，可手动解冻</div></div>
     <div class="card"><div class="lb">额度缓存</div><div class="n">${s.quotaAccounts || 0}<small>/ ${chans.length}</small></div>
       <div class="foot">${s.lastRefresh ? esc(s.lastRefresh) : "还没刷过"}</div></div>
-    <div class="card"><div class="lb">验证码池</div><div class="n">${(s.mint || {}).pool || 0}</div>
-      <div class="foot">近 10 分钟 ${num((s.mint || {}).mints10min || 0)}</div></div>
   </div>
 
   <div class="panel"><h2>号池健康总览 <span class="grow"></span>
@@ -2401,6 +2404,7 @@ function render() {
       else if (k === "port") post("/proxy/port", { port: Number(($("portin") || {}).value || 0) });
       else if (k === "refresh-quota") { b.disabled = true; b.textContent = "刷新中…"; post("/proxy/refresh-quota", {}); }
       else if (k === "keyadd") { b.disabled = true; b.textContent = "…"; post("/proxy/key-add", { key: (($("keyin") || {}).value || "").trim() }); }
+      else if (k === "rproxy") { b.disabled = true; b.textContent = "…"; post("/proxy/proxy-url", { url: (($("rproxy") || {}).value || "").trim() }); }
     };
   }
   for (const b of document.querySelectorAll("[data-probe]")) {

@@ -36,7 +36,7 @@ const CLIENT_HEADERS: [(&str, &str); 17] = [
     ("anthropic-version", "2023-06-01"),
     ("content-type", "application/json"),
     ("http-referer", "https://zcode.z.ai"),
-    ("user-agent", "ZCode/3.14.3 ai-sdk/provider-utils/4.0.27 runtime/node.js/24"),
+    ("user-agent", "@UA@"),
     ("x-client-language", "zh-CN"),
     ("x-client-timezone", "Asia/Shanghai"),
     ("x-os-category", "windows"),
@@ -45,7 +45,7 @@ const CLIENT_HEADERS: [(&str, &str); 17] = [
     ("x-release-channel", "production"),
     ("x-title", "Z Code@electron"),
     ("x-zcode-agent", "glm"),
-    ("x-zcode-app-version", "3.14.3"),
+    ("x-zcode-app-version", "@VER@"),
     ("x-zcode-session-type", "main"),
     ("accept", "*/*"),
     ("accept-language", "*"),
@@ -53,6 +53,24 @@ const CLIENT_HEADERS: [(&str, &str); 17] = [
 ];
 
 const CAPTCHA_REGION: &str = "cn";
+
+/// 请求头里的版本号是**客户端版本**（上游会看）。
+/// 以前这里是写死的 `3.14.3` —— 客户端一升到 3.14.4，上游就把我们当旧版本挡了。
+/// 现在统一从 `quota::zcode_app_version()` 取（它先查注册表，查不到用常量兜底）。
+fn client_headers() -> Vec<(&'static str, String)> {
+    let ver = crate::quota::zcode_app_version();
+    CLIENT_HEADERS
+        .iter()
+        .map(|(k, v)| {
+            let v = match *v {
+                "@UA@" => format!("ZCode/{ver} ai-sdk/provider-utils/4.0.27 runtime/node.js/24"),
+                "@VER@" => ver.clone(),
+                other => other.to_string(),
+            };
+            (*k, v)
+        })
+        .collect()
+}
 
 const METER_WINDOW_MS: u64 = 15_000;
 
@@ -170,6 +188,9 @@ struct Inner {
     model_mode: String,
 
     model_pinned: Option<String>,
+
+    /// 反代出站的代理（空 = 直连）。见 `Settings::relay_proxy`
+    relay_proxy: Option<String>,
     quota_total: usize,
     last_failed: Vec<String>,
 
@@ -324,6 +345,9 @@ impl Gateway {
             "generating": generating,
             "ttfbMs": g.last_ttfb_ms,
             "totalMs": g.last_total_ms,
+            // 反代对外冒充的 ZCode 客户端版本（从安装的 exe 里读，读不到才用兜底常量）
+            "zcodeVersion": crate::quota::zcode_app_version(),
+            "relayProxy": g.relay_proxy,
             "bind": g.bind,
             "keys": g.keys,
             "modelMap": g.model_map,
@@ -584,6 +608,7 @@ impl Gateway {
         if let Some(p) = st.relay_model_pinned {
             g.model_pinned = Some(p).filter(|x| !x.trim().is_empty());
         }
+        g.relay_proxy = st.relay_proxy.filter(|x| !x.trim().is_empty());
         if !cached.0.is_empty() {
             for (id, (at, ov)) in cached.0 {
                 g.quota.insert(id, (at, ov));
@@ -728,6 +753,11 @@ impl Gateway {
         self.inner.lock().unwrap().external = on;
     }
 
+    /// 从取码池里取一个一次性验证码。
+    ///
+    /// ⚠ 2026-09-30 起**没有调用点**了：实测上游不再要求模型请求带验证码（见 `handle_external`
+    /// 里那段说明）。保留在这里是为了万一上游改回去时能一键恢复，不是漏删。
+    #[allow(dead_code)]
     fn take_param(&self) -> Result<(String, String), String> {
         let t0 = now_ms();
         {
@@ -1764,10 +1794,17 @@ fn handle_external(
         }
     };
     let target = format!("{UPSTREAM}{path}");
-    let agent = ureq::AgentBuilder::new()
+    let proxy_url = gw.inner.lock().unwrap().relay_proxy.clone();
+    let mut ab = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(15))
-        .timeout_read(Duration::from_secs(600))
-        .build();
+        .timeout_read(Duration::from_secs(600));
+    if let Some(u) = proxy_url.as_deref() {
+        match ureq::Proxy::new(u) {
+            Ok(px) => ab = ab.proxy(px),
+            Err(e) => crate::flowlog::log("relay", "proxy-bad", &format!("{u}：{e} —— 这一发按直连走")),
+        }
+    }
+    let agent = ab.build();
 
     let mut cands = gw.sticky_order(gw.candidates(paths, &model));
 
@@ -1805,17 +1842,19 @@ fn handle_external(
     for c in cands.iter().take(MAX_TRIES) {
         tried += 1;
 
-        let (param, region) = match gw.take_param() {
-            Ok(v) => v,
-            Err(e) => {
-                crate::usage::append(&usage_path, &mk(&c.name, 503, "no-param", tried, false, now_ms()));
-                return reply_json(
-                    slot.take().unwrap(),
-                    503,
-                    &json!({ "type": "error", "error": { "type": "api_error", "message": e } }),
-                )
-            }
-        };
+        // 2026-09-30 实测：**上游不再要求模型请求带一次性验证码**。
+        //   带 → 200；不带（连打 5 发）→ 200；两者速度无可测差异
+        //   （TTFB 中位差 36ms，远小于单次抖动 800~2100ms）。官方 3.14.4 更新日志也写了
+        //   「关闭模型请求验证码校验」。所以这里不再取码、不再发那两个头。
+        //
+        // 副作用（正面的）：取码是**按需**的（`want_mint` 看 `waiters` / `last_use`），
+        //   而 `last_use` 只由 `take_param` 更新 —— 不调它，180 秒后取码自动停，
+        //   阿里云那边不再按次计费，也不用再动取码循环。
+        //
+        // ⚠ 领取套餐用的是**另一套**验证码（captcha.html 独立窗口 → claim_captcha_submit），
+        //   不经过这里，**别一起删**。
+        // 万一上游又要求了（症状：401/3012 且日志里没有 no-param 记录），恢复下面这段即可：
+        //   let (param, region) = gw.take_param()?; // 并在下面的链式 .set 里带上这两个头
         let sess = account_session(&c.id, &day_seed());
         let out_body = match external_body(body, &c.mid, &model, &sess, paths) {
             Ok(b) => b,
@@ -1835,14 +1874,14 @@ fn handle_external(
         };
 
         let mut call = agent.request("POST", &target);
-        for (k, v) in CLIENT_HEADERS.iter() {
-            call = call.set(k, v);
+        for (k, v) in client_headers() {
+            call = call.set(k, &v);
         }
         call = call
             .set("authorization", &format!("Bearer {}", c.token))
             .set("x-api-key", &c.token)
-            .set("x-aliyun-captcha-verify-param", &param)
-            .set("x-aliyun-captcha-verify-region", &region)
+            // 注：以前这里还有 x-aliyun-captcha-verify-param / -region 两个头，
+            // 2026-09-30 起不再发（上游已关闭模型请求的验证码校验，见上方说明）。
             .set("x-query-id", &uuid::Uuid::now_v7().to_string())
             .set("x-request-id", &uuid::Uuid::new_v4().to_string())
             .set("x-session-id", &uuid::Uuid::new_v4().to_string())
@@ -2272,6 +2311,25 @@ fn handle(mut req: tiny_http::Request, gw: &Gateway) -> Result<(), String> {
             if let Err(e) = gw.set_policy(policy, pinned) {
                 return reply_json(req, 400, &json!({ "error": e }));
             }
+            return reply_json(req, 200, &gw.console_status(&paths));
+        }
+        // 反代出站的代理（空字符串 = 改回直连）
+        "/proxy/proxy-url" => {
+            let v: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+            let url = v.get("url").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+            if !url.is_empty() {
+                if let Err(e) = crate::oauth::parse_proxy_url(&url) {
+                    return reply_json(req, 400, &json!({ "error": e }));
+                }
+            }
+            if let Err(e) = store::set_relay_proxy(&paths, &url) {
+                return reply_json(req, 400, &json!({ "error": e }));
+            }
+            {
+                let mut g = gw.inner.lock().unwrap();
+                g.relay_proxy = if url.is_empty() { None } else { Some(url.clone()) };
+            }
+            crate::flowlog::log("relay", "proxy-set", &if url.is_empty() { "直连".into() } else { url });
             return reply_json(req, 200, &gw.console_status(&paths));
         }
         "/proxy/model-mode" => {
