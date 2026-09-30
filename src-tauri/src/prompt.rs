@@ -8,6 +8,15 @@ use std::rc::Rc;
 
 const PROMPT_PREFIX: &str = "You are ZCode, an interactive coding agent";
 
+/// 服务端只校验到身份段为止：`system` 必须恰好是「固定前缀 + 身份段」两块，且逐字节相等。
+/// 身份段之后的 Desktop Context / Session guidance / Environment / Context management
+/// 全部可有可无（实测：把它们整段删掉照样 200，改动身份段里任意一个字符就 3012）。
+///
+/// 所以这里**有意只发这两块**。被丢掉的那些段落要么点名客户端专属的东西
+/// （`::code-comment` 指令、`/<skill>` 走 Skill 工具），要么把本机路径、
+/// 伪造的环境信息塞进每一次请求里 —— 对第三方客户端全是噪音。
+const IDENTITY_PREFIX: &str = "You are an interactive ZCode agent";
+
 const OVERRIDE_NAME: &str = "system_prompt.json";
 
 pub fn system_blocks(paths: &Paths) -> Result<Vec<Value>, String> {
@@ -52,10 +61,10 @@ fn cache_write(path: &Path, body: &str) -> Result<(), String> {
 }
 
 fn validate(blocks: &[Value]) -> Result<(), String> {
-    if blocks.len() != 3 {
-        return Err(format!("block 数应为 3，实为 {}", blocks.len()));
+    if blocks.len() != 2 {
+        return Err(format!("block 数应为 2，实为 {}", blocks.len()));
     }
-    let mut texts: Vec<String> = Vec::with_capacity(3);
+    let mut texts: Vec<String> = Vec::with_capacity(2);
     for (i, b) in blocks.iter().enumerate() {
         let o = b.as_object().ok_or(format!("block {i} 不是对象"))?;
         if o.get("type").and_then(Value::as_str) != Some("text") {
@@ -91,13 +100,13 @@ fn validate(blocks: &[Value]) -> Result<(), String> {
         }
     }
 
-    let l1 = texts[1].chars().count();
-    let l2 = texts[2].chars().count();
-    if !(1800..=3200).contains(&l1) {
-        return Err(format!("block1 长度 {l1} 不在 [1800,3200]"));
+    if !texts[1].trim_start().starts_with(IDENTITY_PREFIX) {
+        let head: String = texts[1].trim_start().chars().take(40).collect();
+        return Err(format!("block1 不以身份段开头（实得 {head:?}）"));
     }
-    if !(4000..=9000).contains(&l2) {
-        return Err(format!("block2 长度 {l2} 不在 [4000,9000]"));
+    let l1 = texts[1].chars().count();
+    if !(800..=8000).contains(&l1) {
+        return Err(format!("block1 长度 {l1} 不在 [800,8000]"));
     }
     Ok(())
 }
@@ -116,30 +125,13 @@ fn extract_from_src(src: &str) -> Result<Vec<Value>, String> {
 
     let cli = ev.build_section(r#"source:"cli_prefix""#, &[])?;
     let identity = ev.build_section(r#"source:"identity""#, &[Val::Null])?;
-    let desktop = ev.build_section(r#""desktop_context""#, &[])?;
-    let dyn_b = ev.build_section(r#""dynamic_behavior""#, &[])?;
-    let session = ev.build_section(
-        r#""session_guidance""#,
-        &[
-            Val::Arr(Rc::new(RefCell::new(vec![Val::str("Skill")]))),
-            Val::Bool(true),
-        ],
-    )?;
-    let env = ev.build_section(
-        r#"source:"env_info""#,
-        &[env_info_cfg(), model_cfg()],
-    )?;
-    let ctx = ev.build_section(r#""context_management""#, &[])?;
 
-    let ordered: Vec<Val> = vec![cli, identity, desktop, dyn_b, session, env, ctx];
+    let ordered: Vec<Val> = vec![cli, identity];
     let inj = |ev: &mut Ev, v: &Val| -> Result<String, String> {
         Ok(val_to_string(ev.get_prop(v, "injectionTarget")?))
     };
     let src_of = |ev: &mut Ev, v: &Val| -> Result<String, String> {
         Ok(val_to_string(ev.get_prop(v, "source")?))
-    };
-    let hint = |ev: &mut Ev, v: &Val| -> Result<String, String> {
-        Ok(val_to_string(ev.get_prop(v, "cacheHint")?))
     };
     let content = |ev: &mut Ev, v: &Val| -> Result<String, String> {
         match ev.get_prop(v, "content")? {
@@ -150,69 +142,24 @@ fn extract_from_src(src: &str) -> Result<Vec<Value>, String> {
 
     let mut b0: Vec<String> = Vec::new();
     let mut b1: Vec<String> = Vec::new();
-    let mut b2: Vec<String> = Vec::new();
     for s in &ordered {
         if inj(&mut ev, s)? != "system" {
             continue;
         }
-        let src_name = src_of(&mut ev, s)?;
-        let ch = hint(&mut ev, s)?;
-        if src_name == "cli_prefix" {
+        if src_of(&mut ev, s)? == "cli_prefix" {
             b0.push(content(&mut ev, s)?);
-        } else if ch == "stable" {
+        } else {
             b1.push(content(&mut ev, s)?);
-        } else if ch == "dynamic" {
-            b2.push(content(&mut ev, s)?);
         }
     }
 
-    let block0 = b0.join("\n\n");
-    let block1 = b1.join("\n\n");
-    let block2 = format!("\n\n{}", b2.join("\n\n"));
-
     let blocks = vec![
-        json!({ "type": "text", "text": block0, "cache_control": { "type": "ephemeral" } }),
-        json!({ "type": "text", "text": block1, "cache_control": { "type": "ephemeral" } }),
-        json!({ "type": "text", "text": block2, "cache_control": { "type": "ephemeral" } }),
+        json!({ "type": "text", "text": b0.join("\n\n"), "cache_control": { "type": "ephemeral" } }),
+        json!({ "type": "text", "text": b1.join("\n\n"), "cache_control": { "type": "ephemeral" } }),
     ];
 
     validate(&blocks)?;
     Ok(blocks)
-}
-
-fn env_info_cfg() -> Val {
-    let home = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .unwrap_or_default();
-    let cwd = PathBuf::from(&home)
-        .join(".zcode")
-        .join("workspace")
-        .join("default");
-    obj_val(vec![
-        ("cwd", Val::str(&cwd.to_string_lossy())),
-        ("isGitRepository", Val::Bool(false)),
-        ("platform", Val::str("win32")),
-        ("shell", Val::str("Git Bash")),
-        ("osVersion", Val::str("win32 10.0.26200 x64")),
-    ])
-}
-
-fn model_cfg() -> Val {
-    obj_val(vec![
-        ("providerId", Val::str("account:zai-start-plan")),
-        ("modelId", Val::str("GLM-5.3-Flash")),
-    ])
-}
-
-fn obj_val(pairs: Vec<(&str, Val)>) -> Val {
-    Val::Obj(Rc::new(ObjVal {
-        pairs: RefCell::new(
-            pairs
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), Deferred::Done(v)))
-                .collect(),
-        ),
-    }))
 }
 
 fn find_zcode_cjs(paths: &Paths) -> Option<PathBuf> {
