@@ -42,8 +42,8 @@ pi-agent or LobeChat can spend the pool's quota directly.
   `pinned` (lock one model; no switching even when exhausted).
 - **Model mapping**: rename or retire a model at the gateway instead of editing every client.
 - **Quota cache on disk**: quotas no longer live only in memory, so a restart doesn't re-query everything.
-- **Automatic captcha minting**: upstream demands a one-shot verification parameter on every request; the app keeps
-  generating them in the background. Nothing to babysit.
+- **Configurable outbound proxy for the relay**: the relay does not read the system proxy. When the egress IP is
+  flagged (`3012`), set an http / socks5 proxy in Settings instead of keeping a global TUN on.
 
 ### Console pages
 
@@ -54,7 +54,7 @@ pi-agent or LobeChat can spend the pool's quota directly.
 | Usage | Today's and lifetime tokens (input / output / cache broken out), success rate and cache-hit share, grouping by model / account / key, filterable and paginated request log |
 | Accounts | One row per account with status and name filters plus paging; ring-gauge quota dashboard, quotas expiring today, sync-from-login, launch / kill ZCode |
 | Mailbox | Import / export the mailbox pool, batch verification, status filter |
-| Settings | Relay toggle / listen address / port / API keys / captcha pool / ZCode path / selection policy / model policy / model mapping |
+| Settings | Relay toggle / listen address / port / API keys / outbound proxy / ZCode path / selection policy / model policy / model mapping |
 | Logs | Raw runtime log with paging |
 
 The console also serves a **chat page** (`http://127.0.0.1:8899/`) for verifying the relay end to end, with streaming
